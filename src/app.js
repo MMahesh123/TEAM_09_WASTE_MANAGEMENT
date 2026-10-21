@@ -4,6 +4,7 @@ const cors = require('cors');
 require('dotenv').config();
 
 // Import Routes
+const authRoutes = require('./routes/authRoutes');
 const vehicleRoutes = require('./routes/vehicleRoutes');
 const wardRoutes = require('./routes/wardRoutes');
 
@@ -14,6 +15,7 @@ app.use(cors());
 app.use(express.json());
 
 // API Routes mounting
+app.use('/api/auth', authRoutes);
 app.use('/api/vehicles', vehicleRoutes);
 app.use('/api/wards', wardRoutes);
 
