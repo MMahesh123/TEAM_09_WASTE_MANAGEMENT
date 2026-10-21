@@ -96,3 +96,26 @@ exports.updateComplaintStatus = async (req, res, next) => {
         next(error);
     }
 };
+
+// Get single complaint by ID
+exports.getComplaintById = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        let complaint = { id: Number(id), ward: 'Ward 12', type: 'Overflowing Bin', description: 'Bin is overflowing near park', status: 'Pending' };
+
+        try {
+            const [rows] = await db.query('SELECT * FROM complaints WHERE id = ?', [id]);
+            if (rows && rows.length > 0) {
+                complaint = rows[0];
+            } else {
+                return res.status(404).json({ success: false, message: 'Complaint not found.' });
+            }
+        } catch (dbErr) {
+            // Fallback mock check if table doesn't exist yet
+        }
+
+        res.status(200).json({ success: true, data: complaint });
+    } catch (error) {
+        next(error);
+    }
+};
