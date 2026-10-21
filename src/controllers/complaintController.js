@@ -1,4 +1,4 @@
-// Citizen Complaints Controller with Query Filtering
+// Citizen Complaints Controller with Query Filtering and Status Update
 exports.getComplaints = async (req, res) => {
     try {
         const { ward, status } = req.query;
@@ -26,6 +26,25 @@ exports.createComplaint = async (req, res) => {
         const { ward, type, description } = req.body;
         const newComplaint = { id: Date.now(), ward, type, description, status: 'Pending' };
         res.status(201).json({ success: true, message: 'Complaint registered successfully', data: newComplaint });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+exports.updateComplaintStatus = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { status } = req.body;
+
+        if (!status) {
+            return res.status(400).json({ success: false, message: 'Status field is required.' });
+        }
+
+        res.status(200).json({
+            success: true,
+            message: `Complaint ${id} status updated to ${status}`,
+            data: { id: Number(id), status }
+        });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
