@@ -1,4 +1,6 @@
+
 const jwt = require('jsonwebtoken');
+const bcrypt = require('bcrypt');
 
 jest.mock('../src/config/db', () => ({
   query: jest.fn()
@@ -58,6 +60,81 @@ describe('Authentication security', () => {
       ['testuser', 'test@example.com', expect.any(String), 'Citizen']
     );
     expect(res.status).toHaveBeenCalledWith(201);
+  });
+
+  test('registration rejects missing required fields', async () => {
+    const req = {
+      body: {
+        username: 'testuser',
+        email: 'test@example.com'
+      }
+    };
+    const res = mockResponse();
+
+    await authController.register(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(db.query).not.toHaveBeenCalled();
+  });
+
+  test('registration rejects an invalid email', async () => {
+    const req = {
+      body: {
+        username: 'testuser',
+        email: 'not-an-email',
+        password: 'Password123!'
+      }
+    };
+    const res = mockResponse();
+
+    await authController.register(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith({
+      code: 400,
+      message: 'Invalid email format'
+    });
+    expect(db.query).not.toHaveBeenCalled();
+  });
+
+  test('registration rejects passwords shorter than eight characters', async () => {
+    const req = {
+      body: {
+        username: 'testuser',
+        email: 'test@example.com',
+        password: 'short'
+      }
+    };
+    const res = mockResponse();
+
+    await authController.register(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith({
+      code: 400,
+      message: 'Password must be at least 8 characters long'
+    });
+    expect(db.query).not.toHaveBeenCalled();
+  });
+
+  test('login rejects missing credentials', async () => {
+    process.env.JWT_SECRET = 'test-secret';
+
+    const req = {
+      body: {
+        email: 'test@example.com'
+      }
+    };
+    const res = mockResponse();
+
+    await authController.login(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith({
+      code: 400,
+      message: 'Email and password are required'
+    });
+    expect(db.query).not.toHaveBeenCalled();
   });
 
   test('login refuses to issue a token when JWT_SECRET is missing', async () => {
@@ -187,47 +264,48 @@ describe('Authentication security', () => {
   });
 
   test('login returns a valid JWT for correct credentials', async () => {
-  process.env.JWT_SECRET = 'test-secret';
+    process.env.JWT_SECRET = 'test-secret';
 
-  const bcrypt = require('bcrypt');
-  const passwordHash = await bcrypt.hash('Password123!', 10);
+    const passwordHash = await bcrypt.hash('Password123!', 10);
 
-  db.query.mockResolvedValueOnce([[
-    {
-      user_id: 7,
+    db.query.mockResolvedValueOnce([[
+      {
+        user_id: 7,
+        username: 'testuser',
+        email: 'test@example.com',
+        password_hash: passwordHash,
+        role: 'Citizen'
+      }
+    ]]);
+
+    const req = {
+      body: {
+        email: 'test@example.com',
+        password: 'Password123!'
+      }
+    };
+    const res = mockResponse();
+
+    await authController.login(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+
+    const responseBody = res.json.mock.calls[0][0];
+
+    expect(responseBody.token).toBeDefined();
+    expect(responseBody.user).toEqual({
+      id: 7,
       username: 'testuser',
-      email: 'test@example.com',
-      password_hash: passwordHash,
       role: 'Citizen'
-    }
-  ]]);
+    });
 
-  const req = {
-    body: {
-      email: 'test@example.com',
-      password: 'Password123!'
-    }
-  };
-  const res = mockResponse();
+    const decoded = jwt.verify(
+      responseBody.token,
+      process.env.JWT_SECRET
+    );
 
-  await authController.login(req, res);
-
-  expect(res.status).toHaveBeenCalledWith(200);
-
-  const responseBody = res.json.mock.calls[0][0];
-
-  expect(responseBody.token).toBeDefined();
-  expect(responseBody.user).toEqual({
-    id: 7,
-    username: 'testuser',
-    role: 'Citizen'
+    expect(decoded.userId).toBe(7);
+    expect(decoded.role).toBe('Citizen');
+    expect(decoded.email).toBe('test@example.com');
   });
-
-  const decoded = jwt.verify(responseBody.token, process.env.JWT_SECRET);
-
-  expect(decoded.userId).toBe(7);
-  expect(decoded.role).toBe('Citizen');
-  expect(decoded.email).toBe('test@example.com');
-});
-
 });
