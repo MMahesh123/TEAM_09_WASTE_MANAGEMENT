@@ -20,6 +20,10 @@ async function buildCalculation(body) {
   if (period_start > period_end) return { error: 'period_start must not be after period_end' };
   if (!isPositiveNumber(rate)) return { error: 'rate_per_ton must be a positive number' };
 
+  const [users] = await db.query('SELECT role FROM users WHERE user_id = ?', [workerId]);
+  if (users.length === 0) return { error: 'worker_id does not match any user', status: 404 };
+  if (users[0].role !== 'Worker') return { error: 'worker_id must belong to a user with the Worker role' };
+
   const [rows] = await db.query(
     `SELECT COALESCE(SUM(waste_tons), 0) AS total_tons, COUNT(*) AS log_count
      FROM collection_logs WHERE worker_id = ? AND collected_at BETWEEN ? AND ?`,
@@ -40,8 +44,8 @@ async function buildCalculation(body) {
 // WMS-F-012: calculate only, nothing is stored.
 exports.calculate = async (req, res) => {
   try {
-    const { error, data } = await buildCalculation(req.body);
-    if (error) return bad(res, error);
+    const { error, status, data } = await buildCalculation(req.body);
+    if (error) return res.status(status || 400).json({ code: status || 400, message: error });
     res.status(200).json({ code: 200, data });
   } catch (err) {
     serverError(res);
@@ -51,8 +55,8 @@ exports.calculate = async (req, res) => {
 // WMS-F-013: calculate and record a simulated payment (no real money moves).
 exports.simulate = async (req, res) => {
   try {
-    const { error, data } = await buildCalculation(req.body);
-    if (error) return bad(res, error);
+    const { error, status, data } = await buildCalculation(req.body);
+    if (error) return res.status(status || 400).json({ code: status || 400, message: error });
     if (data.total_tons === 0) return bad(res, 'No collection logs found for this worker and period');
 
     const reference = 'SIM-' + crypto.randomBytes(6).toString('hex').toUpperCase();

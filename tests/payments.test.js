@@ -29,14 +29,14 @@ describe('POST /api/payments/calculate', () => {
     expect((await request(app).post('/api/payments/calculate').set(admin).send(bad)).status).toBe(400);
   });
   it('calculates from collection logs without saving', async () => {
-    db.query.mockResolvedValueOnce([[{ total_tons: '10.50', log_count: 3 }]]);
+    db.query.mockResolvedValueOnce([[{ role: 'Worker' }]]).mockResolvedValueOnce([[{ total_tons: '10.50', log_count: 3 }]]);
     const res = await request(app).post('/api/payments/calculate').set(admin).send(valid);
     expect(res.status).toBe(200);
     expect(res.body.data).toMatchObject({ total_tons: 10.5, amount: 6300, log_count: 3 });
-    expect(db.query).toHaveBeenCalledTimes(1);
+    expect(db.query).toHaveBeenCalledTimes(2);
   });
   it('uses the default rate when none is given', async () => {
-    db.query.mockResolvedValueOnce([[{ total_tons: '2', log_count: 1 }]]);
+    db.query.mockResolvedValueOnce([[{ role: 'Worker' }]]).mockResolvedValueOnce([[{ total_tons: '2', log_count: 1 }]]);
     const { rate_per_ton, ...noRate } = valid;
     const res = await request(app).post('/api/payments/calculate').set(admin).send(noRate);
     expect(res.status).toBe(200);
@@ -44,13 +44,26 @@ describe('POST /api/payments/calculate', () => {
   });
 });
 
+describe('worker validation', () => {
+  it('rejects a worker_id that belongs to a non-Worker role', async () => {
+    db.query.mockResolvedValueOnce([[{ role: 'Citizen' }]]);
+    const res = await request(app).post('/api/payments/calculate').set(admin).send(valid);
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/Worker role/);
+  });
+  it('returns 404 when the user does not exist', async () => {
+    db.query.mockResolvedValueOnce([[]]);
+    expect((await request(app).post('/api/payments/simulate').set(admin).send(valid)).status).toBe(404);
+  });
+});
+
 describe('POST /api/payments/simulate', () => {
   it('rejects when there are no logs', async () => {
-    db.query.mockResolvedValueOnce([[{ total_tons: '0', log_count: 0 }]]);
+    db.query.mockResolvedValueOnce([[{ role: 'Worker' }]]).mockResolvedValueOnce([[{ total_tons: '0', log_count: 0 }]]);
     expect((await request(app).post('/api/payments/simulate').set(admin).send(valid)).status).toBe(400);
   });
   it('stores a simulated payment with a reference number', async () => {
-    db.query.mockResolvedValueOnce([[{ total_tons: '10', log_count: 2 }]]).mockResolvedValueOnce([{ insertId: 11 }]);
+    db.query.mockResolvedValueOnce([[{ role: 'Worker' }]]).mockResolvedValueOnce([[{ total_tons: '10', log_count: 2 }]]).mockResolvedValueOnce([{ insertId: 11 }]);
     const res = await request(app).post('/api/payments/simulate').set(admin).send(valid);
     expect(res.status).toBe(201);
     expect(res.body.data).toMatchObject({ payment_id: 11, status: 'Simulated', amount: 6000 });
