@@ -7,6 +7,9 @@ require('dotenv').config();
 const authRoutes = require('./routes/authRoutes');
 const vehicleRoutes = require('./routes/vehicleRoutes');
 const wardRoutes = require('./routes/wardRoutes');
+const disposalRoutes = require('./routes/disposalRoutes');
+const paymentRoutes = require('./routes/paymentRoutes');
+const complaintRoutes = require('./routes/complaintRoutes');
 
 const app = express();
 
@@ -18,6 +21,9 @@ app.use(express.json());
 app.use('/api/auth', authRoutes);
 app.use('/api/vehicles', vehicleRoutes);
 app.use('/api/wards', wardRoutes);
+app.use('/api/disposal', disposalRoutes);
+app.use('/api/payments', paymentRoutes);
+app.use('/api/complaints', complaintRoutes);
 
 // Base route test
 app.get('/', (req, res) => {
@@ -26,8 +32,11 @@ app.get('/', (req, res) => {
 
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
-});
+// Only start listening when run directly, so tests can import the app without opening a port.
+if (require.main === module) {
+    app.listen(PORT, () => {
+        console.log(`Server is running on port ${PORT}`);
+    });
+}
 
 module.exports = app;
