@@ -185,4 +185,49 @@ describe('Authentication security', () => {
     expect(next).toHaveBeenCalledTimes(1);
     expect(res.status).not.toHaveBeenCalled();
   });
+
+  test('login returns a valid JWT for correct credentials', async () => {
+  process.env.JWT_SECRET = 'test-secret';
+
+  const bcrypt = require('bcrypt');
+  const passwordHash = await bcrypt.hash('Password123!', 10);
+
+  db.query.mockResolvedValueOnce([[
+    {
+      user_id: 7,
+      username: 'testuser',
+      email: 'test@example.com',
+      password_hash: passwordHash,
+      role: 'Citizen'
+    }
+  ]]);
+
+  const req = {
+    body: {
+      email: 'test@example.com',
+      password: 'Password123!'
+    }
+  };
+  const res = mockResponse();
+
+  await authController.login(req, res);
+
+  expect(res.status).toHaveBeenCalledWith(200);
+
+  const responseBody = res.json.mock.calls[0][0];
+
+  expect(responseBody.token).toBeDefined();
+  expect(responseBody.user).toEqual({
+    id: 7,
+    username: 'testuser',
+    role: 'Citizen'
+  });
+
+  const decoded = jwt.verify(responseBody.token, process.env.JWT_SECRET);
+
+  expect(decoded.userId).toBe(7);
+  expect(decoded.role).toBe('Citizen');
+  expect(decoded.email).toBe('test@example.com');
+});
+
 });
