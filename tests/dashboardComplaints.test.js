@@ -42,3 +42,29 @@ describe('WMS Dashboard & Complaints API', () => {
         expect(res.body.success).toBe(false);
     });
 });
+
+    test('GET /api/complaints should return an empty list for no matches', async () => {
+        const res = await request(app)
+            .get('/api/complaints?ward=WardThatDoesNotExist');
+
+        expect(res.statusCode).toBe(200);
+        expect(res.body.success).toBe(true);
+        expect(res.body.count).toBe(0);
+        expect(res.body.data).toEqual([]);
+    });
+
+    test('GET /api/complaints/:id should return 404 for a nonexistent complaint', async () => {
+        const res = await request(app).get('/api/complaints/999999');
+
+        expect(res.statusCode).toBe(404);
+        expect(res.body.success).toBe(false);
+    });
+
+    test('PATCH /api/complaints/:id/status should reject an invalid status', async () => {
+        const res = await request(app)
+            .patch('/api/complaints/1/status')
+            .send({ status: 'Unknown' });
+
+        expect(res.statusCode).toBe(400);
+        expect(res.body.success).toBe(false);
+    });
