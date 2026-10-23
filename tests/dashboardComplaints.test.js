@@ -96,6 +96,47 @@ describe('WMS Dashboard & Complaints API', () => {
         });
     });
 
+    test('GET dashboard summary returns zero metrics for an empty database', async () => {
+        db.query
+            .mockResolvedValueOnce([[
+                {
+                    totalComplaints: 0,
+                    pendingComplaints: 0,
+                    inProgressComplaints: 0,
+                    resolvedComplaints: 0
+                }
+            ]])
+            .mockResolvedValueOnce([[
+                { activeVehicles: 0 }
+            ]]);
+
+        const res = await request(app)
+            .get('/api/dashboard/summary')
+            .set('Authorization', `Bearer ${adminToken}`);
+
+        expect(res.statusCode).toBe(200);
+        expect(res.body.success).toBe(true);
+        expect(res.body.data).toEqual({
+            totalComplaints: 0,
+            pendingComplaints: 0,
+            inProgressComplaints: 0,
+            resolvedComplaints: 0,
+            activeVehicles: 0
+        });
+    });
+
+    test('GET dashboard summary returns 500 when the database query fails', async () => {
+        db.query.mockRejectedValueOnce(
+            new Error('Database unavailable')
+        );
+
+        const res = await request(app)
+            .get('/api/dashboard/summary')
+            .set('Authorization', `Bearer ${adminToken}`);
+
+        expect(res.statusCode).toBe(500);
+    });
+
     test('GET dashboard summary rejects a missing token', async () => {
         const res = await request(app)
             .get('/api/dashboard/summary');
