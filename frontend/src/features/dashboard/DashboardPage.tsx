@@ -1,191 +1,650 @@
+import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import {
-  Activity, ArrowDownRight, ArrowUpRight, CheckCircle2, Clock3,
-  MapPin, MoreHorizontal, Recycle, Truck, TriangleAlert,
+  Activity,
+  Bell,
+  CalendarDays,
+  CheckCircle2,
+  ChevronDown,
+  CircleAlert,
+  Clock3,
+  MoreHorizontal,
+  Truck,
 } from 'lucide-react'
 import {
-  Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip,
-  XAxis, YAxis,
+  Cell,
+  CartesianGrid,
+  Line,
+  LineChart,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
 } from 'recharts'
+import {
+  apiClient,
+  getApiErrorMessage,
+} from '../../services/api/client'
 
-const weeklyData = [
-  { day: 'Mon', collected: 38, target: 45 },
-  { day: 'Tue', collected: 52, target: 48 },
-  { day: 'Wed', collected: 43, target: 50 },
-  { day: 'Thu', collected: 67, target: 54 },
-  { day: 'Fri', collected: 58, target: 57 },
-  { day: 'Sat', collected: 76, target: 62 },
-  { day: 'Sun', collected: 61, target: 60 },
+interface DashboardSummary {
+  totalComplaints: number
+  pendingComplaints: number
+  inProgressComplaints: number
+  resolvedComplaints: number
+  activeVehicles: number
+}
+
+interface Complaint {
+  id: number | string
+  ward: string
+  type: string
+  description?: string
+  status: string
+  created_at?: string
+}
+
+interface ComplaintsResponse {
+  success: boolean
+  count: number
+  data: Complaint[]
+}
+
+const initialSummary: DashboardSummary = {
+  totalComplaints: 0,
+  pendingComplaints: 0,
+  inProgressComplaints: 0,
+  resolvedComplaints: 0,
+  activeVehicles: 0,
+}
+
+const complaintsTrend = [
+  { month: 'Jan', received: 35, resolved: 27 },
+  { month: 'Feb', received: 43, resolved: 34 },
+  { month: 'Mar', received: 39, resolved: 32 },
+  { month: 'Apr', received: 55, resolved: 43 },
+  { month: 'May', received: 46, resolved: 39 },
+  { month: 'Jun', received: 62, resolved: 51 },
 ]
 
-const complaints = [
-  { id: 'CMP-1042', title: 'Overflowing community bin', area: 'Indiranagar · Ward 83', status: 'In Progress', color: 'text-cyan-300 bg-cyan-300/10 border-cyan-300/15', time: '12 min ago' },
-  { id: 'CMP-1041', title: 'Missed waste collection', area: 'Koramangala · Ward 151', status: 'Pending', color: 'text-amber-300 bg-amber-300/10 border-amber-300/15', time: '28 min ago' },
-  { id: 'CMP-1040', title: 'Illegal dumping reported', area: 'Whitefield · Ward 84', status: 'Pending', color: 'text-amber-300 bg-amber-300/10 border-amber-300/15', time: '46 min ago' },
-  { id: 'CMP-1039', title: 'Collection vehicle delay', area: 'Jayanagar · Ward 172', status: 'Resolved', color: 'text-emerald-300 bg-emerald-300/10 border-emerald-300/15', time: '1 hr ago' },
+const sampleVehicleStatus = [
+  { name: 'Active', value: 50, color: '#22d3bb' },
+  { name: 'Idle', value: 10, color: '#38bdf8' },
+  { name: 'Maintenance', value: 6, color: '#a78bfa' },
+  { name: 'Out of Service', value: 2, color: '#fb7185' },
 ]
 
-const metrics = [
-  { label: 'Total complaints', value: '1,284', change: '+12.8%', positive: false, icon: TriangleAlert, tint: 'text-cyan-300 bg-cyan-300/10', note: 'vs previous period' },
-  { label: 'Awaiting action', value: '86', change: '−8.2%', positive: true, icon: Clock3, tint: 'text-amber-300 bg-amber-300/10', note: 'vs previous period' },
-  { label: 'Active vehicles', value: '42', change: '+4.5%', positive: true, icon: Truck, tint: 'text-violet-300 bg-violet-300/10', note: 'vs previous period' },
-  { label: 'Resolved cases', value: '92.4%', change: '+3.1%', positive: true, icon: CheckCircle2, tint: 'text-emerald-300 bg-emerald-300/10', note: 'resolution rate' },
-]
+const statusStyles: Record<string, string> = {
+  Pending: 'border-orange-400/20 bg-orange-400/10 text-orange-300',
+  'In Progress': 'border-sky-400/20 bg-sky-400/10 text-sky-300',
+  Resolved: 'border-emerald-400/20 bg-emerald-400/10 text-emerald-300',
+}
 
-function SectionTitle({ title, subtitle, action }: { title: string; subtitle: string; action?: string }) {
+function Panel({
+  children,
+  className = '',
+}: {
+  children: React.ReactNode
+  className?: string
+}) {
   return (
-    <div className="mb-5 flex items-center justify-between gap-3">
+    <section
+      className={`min-w-0 rounded-2xl border border-slate-700/60 bg-[#0d1521] ${className}`}
+    >
+      {children}
+    </section>
+  )
+}
+
+function PanelHeading({
+  title,
+  subtitle,
+  action,
+}: {
+  title: string
+  subtitle?: string
+  action?: React.ReactNode
+}) {
+  return (
+    <div className="mb-5 flex items-start justify-between gap-3">
       <div>
-        <h2 className="text-sm font-semibold text-slate-100">{title}</h2>
-        <p className="mt-1 text-xs text-slate-500">{subtitle}</p>
+        <h2 className="text-sm font-semibold text-white">{title}</h2>
+        {subtitle && (
+          <p className="mt-1 text-[11px] text-slate-500">{subtitle}</p>
+        )}
       </div>
-      {action && <button className="shrink-0 rounded-lg border border-white/[0.08] px-3 py-2 text-[11px] text-slate-300 transition hover:border-emerald-300/30 hover:text-emerald-300">{action}</button>}
+      {action}
     </div>
+  )
+}
+
+function formatStatus(status: string) {
+  if (status === 'In-Progress') return 'In Progress'
+  return status
+}
+
+function formatComplaintDate(date?: string) {
+  if (!date) return '—'
+
+  const parsed = new Date(date)
+
+  if (Number.isNaN(parsed.getTime())) return '—'
+
+  return parsed.toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  })
+}
+
+function StatusBadge({ status }: { status: string }) {
+  return (
+    <span
+      className={`inline-flex whitespace-nowrap rounded-md border px-2 py-1 text-[10px] font-medium ${
+        statusStyles[formatStatus(status)] ??
+        'border-slate-600 bg-slate-700/30 text-slate-300'
+      }`}
+    >
+      {formatStatus(status)}
+    </span>
   )
 }
 
 export default function DashboardPage() {
-  return (
-    <div className="space-y-7">
-      <section className="relative overflow-hidden rounded-2xl border border-emerald-300/15 bg-gradient-to-r from-[#10251f] via-[#10201f] to-[#111a29] p-5 sm:p-7 lg:p-8">
-        <div className="panel-grid absolute inset-0 opacity-40" />
-        <div className="absolute -right-10 -top-24 h-64 w-64 rounded-full bg-emerald-400/[0.08] blur-3xl" />
-        <div className="relative flex flex-col justify-between gap-6 sm:flex-row sm:items-center">
-          <div className="max-w-2xl">
-            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-300/[0.07] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-300">
-              <Activity size={12} /> Operations overview
-            </div>
-            <h1 className="text-2xl font-semibold tracking-tight text-white sm:text-3xl">A cleaner city starts <span className="text-emerald-300">with visibility.</span></h1>
-            <p className="mt-3 max-w-xl text-sm leading-6 text-slate-400">Monitor service requests, collection activity, and fleet indicators from one operational workspace.</p>
-          </div>
-          <div className="flex shrink-0 items-center gap-3 rounded-xl border border-white/[0.08] bg-black/20 px-4 py-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-300/10 text-emerald-300"><MapPin size={19} /></div>
-            <div><p className="text-xs font-medium text-white">Bengaluru, Karnataka</p><p className="mt-1 text-[10px] text-slate-500">City operations preview</p></div>
-          </div>
-        </div>
-      </section>
+  const [period, setPeriod] = useState('Last 6 months')
+  const [showPeriodOptions, setShowPeriodOptions] = useState(false)
 
-      <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-end">
+  const [summary, setSummary] = useState<DashboardSummary>(initialSummary)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  const [recentComplaints, setRecentComplaints] = useState<Complaint[]>([])
+  const [complaintsLoading, setComplaintsLoading] = useState(true)
+  const [complaintsError, setComplaintsError] = useState('')
+
+  useEffect(() => {
+    let active = true
+
+    async function fetchSummary() {
+      setLoading(true)
+      setError('')
+
+      try {
+        const response = await apiClient.get<{
+          success: boolean
+          data: DashboardSummary
+        }>('/dashboard/summary')
+
+        if (!response.data.success || !response.data.data) {
+          throw new Error('The server returned an invalid dashboard response.')
+        }
+
+        if (active) {
+          setSummary(response.data.data)
+        }
+      } catch (err) {
+        if (active) {
+          setError(getApiErrorMessage(err))
+        }
+      } finally {
+        if (active) {
+          setLoading(false)
+        }
+      }
+    }
+
+    void fetchSummary()
+
+    return () => {
+      active = false
+    }
+  }, [])
+
+  useEffect(() => {
+    let active = true
+
+    async function fetchRecentComplaints() {
+      setComplaintsLoading(true)
+      setComplaintsError('')
+
+      try {
+        const response = await apiClient.get<ComplaintsResponse>('/complaints')
+
+        if (
+          !response.data.success ||
+          !Array.isArray(response.data.data)
+        ) {
+          throw new Error('Invalid complaints response from server.')
+        }
+
+        if (active) {
+          setRecentComplaints(response.data.data.slice(0, 5))
+        }
+      } catch (err) {
+        if (active) {
+          setComplaintsError(getApiErrorMessage(err))
+        }
+      } finally {
+        if (active) {
+          setComplaintsLoading(false)
+        }
+      }
+    }
+
+    void fetchRecentComplaints()
+
+    return () => {
+      active = false
+    }
+  }, [])
+
+  const metrics = [
+    {
+      title: 'Total Complaints',
+      value: summary.totalComplaints,
+      icon: CircleAlert,
+      color: '#35d9bb',
+      background: 'bg-emerald-400/10',
+    },
+    {
+      title: 'Pending',
+      value: summary.pendingComplaints,
+      icon: Clock3,
+      color: '#fb923c',
+      background: 'bg-orange-400/10',
+    },
+    {
+      title: 'In Progress',
+      value: summary.inProgressComplaints,
+      icon: Activity,
+      color: '#38bdf8',
+      background: 'bg-sky-400/10',
+    },
+    {
+      title: 'Resolved',
+      value: summary.resolvedComplaints,
+      icon: CheckCircle2,
+      color: '#c084fc',
+      background: 'bg-purple-400/10',
+    },
+  ]
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h2 className="text-lg font-semibold tracking-tight text-white">Dashboard overview</h2>
-          <p className="mt-1 text-xs text-slate-500">A snapshot of city service indicators.</p>
+          <div className="flex items-center gap-2">
+            <span className="h-2 w-2 rounded-full bg-emerald-400" />
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-300">
+              WMS / Operations
+            </p>
+          </div>
+          <h1 className="mt-2 text-2xl font-semibold tracking-tight text-white">
+            Dashboard
+          </h1>
+          <p className="mt-1 text-xs text-slate-400">
+            Overview of city waste management operations.
+          </p>
         </div>
-        <p className="text-[10px] text-amber-300/80">Illustrative demo metrics · Not live database data</p>
+
+        <div className="flex items-center gap-2">
+          <span className="hidden items-center gap-2 rounded-lg border border-slate-700 bg-[#0d1521] px-3 py-2 text-[11px] text-slate-400 sm:flex">
+            <CalendarDays size={14} />
+            {new Date().toLocaleDateString('en-IN', {
+              day: '2-digit',
+              month: 'short',
+              year: 'numeric',
+            })}
+          </span>
+          <button
+            type="button"
+            aria-label="Notifications"
+            title="Notifications are not connected yet"
+            className="rounded-lg border border-slate-700 bg-[#0d1521] p-2.5 text-slate-300 hover:border-emerald-400/40"
+          >
+            <Bell size={16} />
+          </button>
+        </div>
       </div>
 
-      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 2xl:grid-cols-4">
-        {metrics.map(({ label, value, change, positive, icon: Icon, tint, note }) => (
-          <article key={label} className="glass-card group rounded-2xl p-5 transition duration-200 hover:-translate-y-0.5 hover:border-emerald-300/20">
-            <div className="flex items-start justify-between gap-3">
-              <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${tint}`}><Icon size={19} /></div>
-              <button aria-label={`More about ${label}`} className="rounded-lg p-1.5 text-slate-600 hover:bg-white/5 hover:text-slate-300"><MoreHorizontal size={18} /></button>
-            </div>
-            <p className="mt-5 text-xs font-medium text-slate-400">{label}</p>
-            <div className="mt-2 flex flex-wrap items-baseline gap-2">
-              <p className="text-3xl font-semibold tracking-tight text-white">{value}</p>
-              <span className={`inline-flex items-center text-[11px] ${positive ? 'text-emerald-300' : 'text-rose-300'}`}>
-                {positive ? <ArrowUpRight size={13} /> : <ArrowDownRight size={13} />}{change}
-              </span>
-            </div>
-            <p className="mt-2 text-[10px] text-slate-600">{note} <span className="text-slate-700">· demo only</span></p>
-          </article>
-        ))}
+      {error && (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-red-400/20 bg-red-400/[0.06] px-4 py-3"
+        >
+          <div>
+            <p className="text-xs font-medium text-red-300">
+              Could not load live dashboard metrics
+            </p>
+            <p className="mt-1 text-xs text-slate-400">{error}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="rounded-lg border border-red-400/30 px-3 py-2 text-xs text-red-200 hover:bg-red-400/10"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      <p className="rounded-lg border border-emerald-400/15 bg-emerald-400/[0.04] px-3 py-2 text-[10px] text-emerald-200/80">
+        {loading
+          ? 'Loading live dashboard metrics…'
+          : error
+            ? 'Live metrics unavailable.'
+            : 'Complaint counts and active vehicle count are live. The trend chart and vehicle status breakdown are illustrative sample data.'}
+      </p>
+
+      <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-4">
+        {metrics.map((metric) => {
+          const Icon = metric.icon
+
+          return (
+            <Panel
+              key={metric.title}
+              className="p-4 transition duration-200 hover:-translate-y-0.5 hover:border-slate-600"
+            >
+              <div className="flex items-start justify-between">
+                <div
+                  className={`flex h-9 w-9 items-center justify-center rounded-xl ${metric.background}`}
+                  style={{ color: metric.color }}
+                >
+                  <Icon size={18} />
+                </div>
+                <MoreHorizontal size={17} className="text-slate-600" />
+              </div>
+
+              <p className="mt-4 text-xs text-slate-400">{metric.title}</p>
+              <div className="mt-1.5">
+                <span className="text-3xl font-semibold tracking-tight text-white">
+                  {loading || error ? '—' : metric.value}
+                </span>
+              </div>
+              <p className="mt-1.5 text-[10px] text-slate-500">
+                {loading ? 'Loading…' : error ? 'Unavailable' : 'Live database value'}
+              </p>
+            </Panel>
+          )
+        })}
       </section>
 
-      <section className="grid grid-cols-1 gap-5 xl:grid-cols-[1.65fr_1fr]">
-        <article className="glass-card min-w-0 rounded-2xl p-5 sm:p-6">
-          <SectionTitle title="Collection activity" subtitle="Illustrative daily collection volume · tonnes" action="Last 7 days" />
-          <div className="mb-5 flex flex-wrap gap-x-5 gap-y-2 text-[11px]">
-            <span className="flex items-center gap-2 text-slate-400"><span className="h-2 w-2 rounded-full bg-emerald-300" />Collected</span>
-            <span className="flex items-center gap-2 text-slate-400"><span className="h-2 w-2 rounded-full bg-cyan-300" />Target</span>
+      <section className="grid grid-cols-1 gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+        <Panel className="p-4 sm:p-5">
+          <PanelHeading
+            title="Complaints Trend"
+            subtitle="Illustrative complaint volume — historical API not connected"
+            action={
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowPeriodOptions((value) => !value)}
+                  className="flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-[10px] text-slate-300 hover:border-emerald-400/30"
+                  aria-expanded={showPeriodOptions}
+                >
+                  {period}
+                  <ChevronDown size={13} />
+                </button>
+
+                {showPeriodOptions && (
+                  <div className="absolute right-0 top-full z-20 mt-2 w-36 overflow-hidden rounded-lg border border-slate-700 bg-[#111b29] p-1 shadow-xl">
+                    {['Last 6 months', 'Last 30 days', 'Last 7 days'].map(
+                      (option) => (
+                        <button
+                          type="button"
+                          key={option}
+                          onClick={() => {
+                            setPeriod(option)
+                            setShowPeriodOptions(false)
+                          }}
+                          className="block w-full rounded-md px-3 py-2 text-left text-[11px] text-slate-300 hover:bg-emerald-400/10 hover:text-emerald-300"
+                        >
+                          {option}
+                        </button>
+                      ),
+                    )}
+                  </div>
+                )}
+              </div>
+            }
+          />
+
+          <div className="mb-4 flex flex-wrap gap-4 text-[10px] text-slate-400">
+            <span className="flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-sky-400" />
+              Received
+            </span>
+            <span className="flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-emerald-400" />
+              Resolved
+            </span>
           </div>
-          <div className="h-[260px] w-full">
+
+          <div className="h-[245px] w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={weeklyData} margin={{ top: 8, right: 4, left: -22, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="collectedFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#16e6a1" stopOpacity={0.22} />
-                    <stop offset="95%" stopColor="#16e6a1" stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="targetFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#00d5e8" stopOpacity={0.08} />
-                    <stop offset="95%" stopColor="#00d5e8" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid stroke="rgba(143,161,181,0.10)" strokeDasharray="3 5" vertical={false} />
-                <XAxis dataKey="day" tick={{ fill: '#718399', fontSize: 11 }} axisLine={false} tickLine={false} dy={10} />
-                <YAxis tick={{ fill: '#718399', fontSize: 10 }} axisLine={false} tickLine={false} />
-                <Tooltip contentStyle={{ background: '#101925', border: '1px solid #263548', borderRadius: 12, fontSize: 12 }} labelStyle={{ color: '#edf4fa' }} />
-                <Area type="monotone" dataKey="target" name="Target" stroke="#00d5e8" strokeWidth={1.5} strokeDasharray="5 5" fill="url(#targetFill)" />
-                <Area type="monotone" dataKey="collected" name="Collected" stroke="#16e6a1" strokeWidth={2.5} fill="url(#collectedFill)" activeDot={{ r: 5, fill: '#16e6a1', stroke: '#080c12', strokeWidth: 2 }} />
-              </AreaChart>
+              <LineChart
+                data={complaintsTrend}
+                margin={{ top: 8, right: 5, left: -22, bottom: 0 }}
+              >
+                <CartesianGrid
+                  stroke="rgba(148,163,184,0.10)"
+                  strokeDasharray="3 5"
+                  vertical={false}
+                />
+                <XAxis
+                  dataKey="month"
+                  tick={{ fill: '#718399', fontSize: 10 }}
+                  axisLine={false}
+                  tickLine={false}
+                  dy={8}
+                />
+                <YAxis
+                  tick={{ fill: '#718399', fontSize: 10 }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <Tooltip
+                  contentStyle={{
+                    background: '#101925',
+                    border: '1px solid #334155',
+                    borderRadius: 10,
+                    fontSize: 11,
+                  }}
+                  labelStyle={{ color: '#e2e8f0' }}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="received"
+                  name="Received"
+                  stroke="#38bdf8"
+                  strokeWidth={2}
+                  dot={false}
+                  activeDot={{ r: 4 }}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="resolved"
+                  name="Resolved"
+                  stroke="#34d399"
+                  strokeWidth={2}
+                  dot={false}
+                  activeDot={{ r: 4 }}
+                />
+              </LineChart>
             </ResponsiveContainer>
           </div>
-        </article>
+        </Panel>
 
-        <article className="glass-card rounded-2xl p-5 sm:p-6">
-          <SectionTitle title="Service health" subtitle="Illustrative operational indicators" />
-          <div className="space-y-6 pt-1">
-            {[
-              { label: 'Complaint resolution', value: 92, color: 'bg-emerald-300', amount: '92%' },
-              { label: 'Collection target', value: 76, color: 'bg-cyan-300', amount: '76%' },
-              { label: 'Fleet availability', value: 84, color: 'bg-violet-300', amount: '84%' },
-            ].map((item) => (
-              <div key={item.label}>
-                <div className="mb-2.5 flex items-center justify-between gap-3 text-xs"><span className="text-slate-300">{item.label}</span><span className="font-semibold text-white">{item.amount}</span></div>
-                <div className="h-2 overflow-hidden rounded-full bg-white/[0.06]"><div className={`h-full rounded-full ${item.color}`} style={{ width: `${item.value}%` }} /></div>
+        <Panel className="p-4 sm:p-5">
+          <PanelHeading
+            title="Vehicle Status"
+            subtitle="Sample fleet breakdown; only active count is live"
+            action={<MoreHorizontal size={15} className="text-slate-400" />}
+          />
+
+          <div className="grid grid-cols-1 items-center gap-4 sm:grid-cols-[1fr_1fr]">
+            <div className="relative mx-auto h-[190px] w-full max-w-[230px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={sampleVehicleStatus}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    innerRadius="62%"
+                    outerRadius="88%"
+                    paddingAngle={3}
+                    stroke="none"
+                  >
+                    {sampleVehicleStatus.map((item) => (
+                      <Cell key={item.name} fill={item.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{
+                      background: '#101925',
+                      border: '1px solid #334155',
+                      borderRadius: 10,
+                      fontSize: 11,
+                    }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+                <Truck size={17} className="mb-1 text-emerald-300" />
+                <span className="text-2xl font-semibold text-white">
+                  {loading || error ? '—' : summary.activeVehicles}
+                </span>
+                <span className="text-[10px] text-slate-500">
+                  Active vehicles
+                </span>
               </div>
-            ))}
+            </div>
+
+            <div className="space-y-4">
+              {sampleVehicleStatus.map((item) => (
+                <div
+                  key={item.name}
+                  className="flex items-center justify-between gap-3"
+                >
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span
+                      className="h-2 w-2 shrink-0 rounded-full"
+                      style={{ backgroundColor: item.color }}
+                    />
+                    <span className="text-[11px] text-slate-400">
+                      {item.name}
+                    </span>
+                  </div>
+                  <span className="text-xs font-semibold text-slate-200">
+                    {item.name === 'Active' && !loading && !error
+                      ? summary.activeVehicles
+                      : '—'}
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
-          <div className="mt-7 flex items-start gap-3 rounded-xl border border-amber-300/10 bg-amber-300/[0.04] p-3.5">
-            <Activity size={17} className="mt-0.5 shrink-0 text-amber-300" />
-            <div><p className="text-xs font-medium text-slate-200">Preview indicators</p><p className="mt-1 text-[11px] leading-5 text-slate-500">These values are sample visuals. Live calculations will be added when the corresponding API is verified.</p></div>
-          </div>
-        </article>
+        </Panel>
       </section>
 
-      <section className="glass-card overflow-hidden rounded-2xl">
-        <div className="p-5 sm:p-6">
-          <SectionTitle title="Recent complaints" subtitle="Sample records to preview the table layout" action="View all complaints" />
+      <Panel className="overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-3 p-4 sm:p-5">
+          <div>
+            <h2 className="text-sm font-semibold text-white">
+              Recent Complaints
+            </h2>
+            <p className="mt-1 text-[11px] text-slate-500">
+              Latest complaints retrieved from the backend
+            </p>
+          </div>
+          <Link
+            to="/complaints"
+            className="text-[11px] font-medium text-emerald-300 transition hover:text-emerald-200"
+          >
+            View All →
+          </Link>
         </div>
+
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[650px] border-collapse text-left">
-            <thead><tr className="border-y border-white/[0.06] bg-white/[0.015] text-[10px] uppercase tracking-[0.12em] text-slate-500">
-              <th className="px-6 py-3.5 font-medium">Complaint</th><th className="px-5 py-3.5 font-medium">Area</th><th className="px-5 py-3.5 font-medium">Status</th><th className="px-5 py-3.5 font-medium">Reported</th>
-            </tr></thead>
+          <table className="w-full min-w-[680px] border-collapse text-left">
+            <thead>
+              <tr className="border-y border-white/[0.06] bg-white/[0.02] text-[10px] uppercase tracking-wider text-slate-500">
+                <th className="px-5 py-3 font-medium">ID</th>
+                <th className="px-5 py-3 font-medium">Ward</th>
+                <th className="px-5 py-3 font-medium">Type</th>
+                <th className="px-5 py-3 font-medium">Status</th>
+                <th className="px-5 py-3 font-medium">Date</th>
+              </tr>
+            </thead>
             <tbody>
-              {complaints.map((complaint) => (
-                <tr key={complaint.id} className="border-b border-white/[0.04] last:border-0 transition hover:bg-white/[0.02]">
-                  <td className="px-6 py-4"><p className="text-xs font-medium text-slate-200">{complaint.title}</p><p className="mt-1 text-[10px] text-slate-600">{complaint.id}</p></td>
-                  <td className="px-5 py-4 text-xs text-slate-400">{complaint.area}</td>
-                  <td className="px-5 py-4"><span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] ${complaint.color}`}><span className="h-1.5 w-1.5 rounded-full bg-current" />{complaint.status}</span></td>
-                  <td className="px-5 py-4 text-xs text-slate-500">{complaint.time}</td>
+              {complaintsLoading ? (
+                <tr>
+                  <td
+                    colSpan={5}
+                    className="px-5 py-8 text-center text-xs text-slate-400"
+                  >
+                    Loading recent complaints…
+                  </td>
                 </tr>
-              ))}
+              ) : complaintsError ? (
+                <tr>
+                  <td
+                    colSpan={5}
+                    className="px-5 py-8 text-center text-xs text-red-300"
+                  >
+                    {complaintsError}
+                  </td>
+                </tr>
+              ) : recentComplaints.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={5}
+                    className="px-5 py-8 text-center text-xs text-slate-400"
+                  >
+                    No complaints found.
+                  </td>
+                </tr>
+              ) : (
+                recentComplaints.map((complaint) => (
+                  <tr
+                    key={complaint.id}
+                    className="border-b border-white/[0.04] last:border-0 transition hover:bg-white/[0.02]"
+                  >
+                    <td className="whitespace-nowrap px-5 py-4 text-[11px] font-medium text-slate-300">
+                      #{complaint.id}
+                    </td>
+                    <td className="whitespace-nowrap px-5 py-4 text-[11px] text-slate-400">
+                      Ward {complaint.ward}
+                    </td>
+                    <td className="whitespace-nowrap px-5 py-4 text-[11px] text-slate-300">
+                      {complaint.type}
+                    </td>
+                    <td className="px-5 py-4">
+                      <StatusBadge status={complaint.status} />
+                    </td>
+                    <td className="whitespace-nowrap px-5 py-4 text-[10px] text-slate-500">
+                      {formatComplaintDate(complaint.created_at)}
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
-        <div className="flex items-center justify-between gap-3 border-t border-white/[0.05] px-5 py-4 sm:px-6">
-          <p className="text-[10px] text-slate-600">Sample data · No live records loaded</p>
-          <span className="text-[10px] text-slate-500">4 preview rows</span>
-        </div>
-      </section>
 
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        {[
-          { icon: Recycle, title: 'Collection', text: 'Review collection records and validation workflows.', color: 'text-emerald-300 bg-emerald-300/10', path: '/collection' },
-          { icon: Truck, title: 'Fleet management', text: 'Prepare vehicle status and fleet views.', color: 'text-cyan-300 bg-cyan-300/10', path: '/vehicles' },
-          { icon: ClipboardIcon, title: 'Complaint handling', text: 'Open the complaints workspace.', color: 'text-violet-300 bg-violet-300/10', path: '/complaints' },
-        ].map(({ icon: Icon, title, text, color, path }) => (
-          <a key={title} href={path} className="glass-card flex items-start gap-4 rounded-2xl p-5 transition hover:-translate-y-0.5 hover:border-emerald-300/20">
-            <div className={`rounded-xl p-3 ${color}`}><Icon size={20} /></div>
-            <div><h3 className="text-xs font-semibold text-slate-200">{title}</h3><p className="mt-1.5 text-[11px] leading-5 text-slate-500">{text}</p></div>
-          </a>
-        ))}
-      </section>
+        <div className="border-t border-white/[0.05] px-5 py-3">
+          <p className="text-[10px] text-slate-500">
+            {complaintsLoading
+              ? 'Loading complaints from the database.'
+              : complaintsError
+                ? 'Could not retrieve complaints from the database.'
+                : `Showing ${recentComplaints.length} complaint(s) returned by the API.`}
+          </p>
+        </div>
+      </Panel>
     </div>
   )
-}
-
-function ClipboardIcon(props: { size?: number }) {
-  return <Activity size={props.size ?? 20} />
 }
