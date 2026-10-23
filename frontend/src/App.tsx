@@ -1,4 +1,3 @@
-
 import { lazy, Suspense, useEffect } from 'react'
 import {
   BrowserRouter,
@@ -15,6 +14,9 @@ import LandingPage from './features/landing/LandingPage'
 const DashboardPage = lazy(() => import('./features/dashboard/DashboardPage'))
 const LoginPage = lazy(() => import('./features/auth/LoginPage'))
 const RegisterPage = lazy(() => import('./features/auth/RegisterPage'))
+const ComplaintsPage = lazy(
+  () => import('./features/complaints/ComplaintsPage'),
+)
 
 const pageDetails: Record<string, { title: string; description: string }> = {
   complaints: {
@@ -127,8 +129,19 @@ export default function App() {
                 }
               />
 
+              <Route
+                path="complaints"
+                element={
+                  <FeatureErrorBoundary featureName="Complaints">
+                    <ComplaintsPage />
+                  </FeatureErrorBoundary>
+                }
+              />
+
               {Object.keys(pageDetails)
-                .filter((key) => key !== 'profile')
+                .filter(
+                  (key) => key !== 'profile' && key !== 'complaints',
+                )
                 .map((key) => (
                   <Route
                     key={key}
