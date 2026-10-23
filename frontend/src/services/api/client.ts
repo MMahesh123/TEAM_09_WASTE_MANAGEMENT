@@ -27,13 +27,14 @@ apiClient.interceptors.response.use(
   (response) => response,
   (error: AxiosError<{ message?: string }>) => {
     if (error.response?.status === 401 || error.response?.status === 403) {
-      // Do not automatically log the user out here:
-      // a 403 can mean insufficient permissions, not an expired session.
+      // A 403 can mean insufficient permissions, not an expired session.
+      // Dispatch an event so the application can handle authentication errors.
       window.dispatchEvent(
         new CustomEvent('wms:auth-error', {
           detail: {
             status: error.response.status,
-            message: error.response.data?.message ?? 'Authentication failed',
+            message:
+              error.response.data?.message ?? 'Authentication failed',
           },
         }),
       )
@@ -50,13 +51,22 @@ export function getApiErrorMessage(error: unknown): string {
     }
 
     const message = error.response.data?.message
+
     if (typeof message === 'string' && message.trim()) {
       return message
     }
 
-    if (error.response.status === 401) return 'Please sign in to continue.'
-    if (error.response.status === 403) return 'You do not have permission to perform this action.'
-    if (error.response.status >= 500) return 'The server encountered an error. Please try again later.'
+    if (error.response.status === 401) {
+      return 'Please sign in to continue.'
+    }
+
+    if (error.response.status === 403) {
+      return 'You do not have permission to perform this action.'
+    }
+
+    if (error.response.status >= 500) {
+      return 'The server encountered an error. Please try again later.'
+    }
   }
 
   return 'Something went wrong. Please try again.'
