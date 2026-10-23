@@ -198,6 +198,39 @@ describe('WMS Dashboard & Complaints API', () => {
 
         expect(res.statusCode).toBe(400);
         expect(res.body.success).toBe(false);
+        expect(db.query).not.toHaveBeenCalled();
+    });
+
+    test('POST complaints rejects whitespace-only ward and type', async () => {
+        const res = await request(app)
+            .post('/api/complaints')
+            .set('Authorization', `Bearer ${citizenToken}`)
+            .send({ ward: '   ', type: '   ' });
+
+        expect(res.statusCode).toBe(400);
+        expect(res.body.success).toBe(false);
+        expect(db.query).not.toHaveBeenCalled();
+    });
+
+    test('POST complaints rejects non-string ward and type', async () => {
+        const res = await request(app)
+            .post('/api/complaints')
+            .set('Authorization', `Bearer ${citizenToken}`)
+            .send({ ward: 123, type: { name: 'Overflow' } });
+
+        expect(res.statusCode).toBe(400);
+        expect(res.body.success).toBe(false);
+        expect(db.query).not.toHaveBeenCalled();
+    });
+
+    test('POST complaints rejects a null request body', async () => {
+        const res = await request(app)
+            .post('/api/complaints')
+            .set('Authorization', `Bearer ${citizenToken}`)
+            .set('Content-Type', 'application/json')
+            .send('null');
+
+        expect(res.statusCode).toBe(400);
     });
 
     test('PATCH status rejects a missing token', async () => {
