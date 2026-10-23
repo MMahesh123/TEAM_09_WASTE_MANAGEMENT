@@ -202,6 +202,35 @@ describe('Authentication security', () => {
     verifyToken(req, res, next);
 
     expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.json).toHaveBeenCalledWith({
+      code: 403,
+      message: 'Invalid token'
+    });
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  test('middleware rejects an expired token', () => {
+    process.env.JWT_SECRET = 'test-secret';
+
+    const token = jwt.sign(
+      { userId: 1, role: 'Citizen' },
+      process.env.JWT_SECRET,
+      { expiresIn: -1 }
+    );
+
+    const req = {
+      headers: { authorization: `Bearer ${token}` }
+    };
+    const res = mockResponse();
+    const next = jest.fn();
+
+    verifyToken(req, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.json).toHaveBeenCalledWith({
+      code: 403,
+      message: 'Invalid token'
+    });
     expect(next).not.toHaveBeenCalled();
   });
 
