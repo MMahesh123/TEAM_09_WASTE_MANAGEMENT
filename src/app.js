@@ -9,7 +9,6 @@ const vehicleRoutes = require('./routes/vehicleRoutes');
 const wardRoutes = require('./routes/wardRoutes');
 const disposalRoutes = require('./routes/disposalRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
-const complaintRoutes = require('./routes/complaintRoutes');
 
 const app = express();
 
@@ -23,7 +22,6 @@ app.use('/api/vehicles', vehicleRoutes);
 app.use('/api/wards', wardRoutes);
 app.use('/api/disposal', disposalRoutes);
 app.use('/api/payments', paymentRoutes);
-app.use('/api/complaints', complaintRoutes);
 
 // Base route test
 app.get('/', (req, res) => {
