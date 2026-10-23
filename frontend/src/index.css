@@ -1,0 +1,125 @@
+@import "tailwindcss";
+
+:root {
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #edf4fa;
+  background: #080c12;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-optical-sizing: auto;
+  font-weight: 400;
+
+  --bg: #080c12;
+  --sidebar: #0b111a;
+  --surface: #101925;
+  --surface-raised: #142130;
+  --border: #243344;
+  --text: #edf4fa;
+  --muted: #8fa1b5;
+  --green: #16e6a1;
+  --cyan: #00d5e8;
+  --purple: #9b7aff;
+  --danger: #ff647c;
+  --warning: #ffb454;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-width: 320px;
+  min-height: 100%;
+  background: var(--bg);
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+}
+
+body::before {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  content: "";
+  background:
+    radial-gradient(ellipse at 78% 0%, rgb(0 213 232 / 7%), transparent 34%),
+    radial-gradient(ellipse at 0% 45%, rgb(22 230 161 / 5%), transparent 36%);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 3px;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+::selection {
+  color: #06110d;
+  background: var(--green);
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.glass-card {
+  border: 1px solid rgb(143 161 181 / 13%);
+  background: linear-gradient(145deg, rgb(18 29 43 / 96%), rgb(12 20 31 / 96%));
+  box-shadow: 0 12px 32px rgb(0 0 0 / 12%);
+}
+
+.panel-grid {
+  background-image:
+    linear-gradient(rgb(143 161 181 / 3%) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(143 161 181 / 3%) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+.custom-scrollbar {
+  scrollbar-color: #2c4053 transparent;
+  scrollbar-width: thin;
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgb(22 230 161 / 0%); }
+  50% { box-shadow: 0 0 0 5px rgb(22 230 161 / 8%); }
+}
+
+.status-pulse {
+  animation: pulse-glow 2.5s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
