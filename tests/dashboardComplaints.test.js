@@ -21,41 +21,109 @@ const supervisorToken = jwt.sign(
     process.env.JWT_SECRET
 );
 
+const workerToken = jwt.sign(
+    { userId: 3, role: 'Worker', email: 'worker@example.com' },
+    process.env.JWT_SECRET
+);
+
+const adminToken = jwt.sign(
+    { userId: 4, role: 'Admin', email: 'admin@example.com' },
+    process.env.JWT_SECRET
+);
+
 describe('WMS Dashboard & Complaints API', () => {
     beforeEach(() => {
         jest.clearAllMocks();
     });
 
-    
-test('GET dashboard summary returns metrics', async () => {
-    db.query
-        .mockResolvedValueOnce([[
-            {
-                totalComplaints: 10,
-                pendingComplaints: 4,
-                resolvedComplaints: 6
-            }
-        ]])
-        .mockResolvedValueOnce([[
-            { activeVehicles: 3 }
-        ]]);
+    // Dashboard access control and summary
 
-    const res = await request(app).get('/api/dashboard/summary');
+    test('GET dashboard summary returns metrics for a Supervisor', async () => {
+        db.query
+            .mockResolvedValueOnce([[
+                {
+                    totalComplaints: 10,
+                    pendingComplaints: 4,
+                    inProgressComplaints: 2,
+                    resolvedComplaints: 4
+                }
+            ]])
+            .mockResolvedValueOnce([[
+                { activeVehicles: 3 }
+            ]]);
 
-    expect(res.statusCode).toBe(200);
-    expect(res.body.success).toBe(true);
-    expect(res.body.data).toEqual({
-        totalComplaints: 10,
-        pendingComplaints: 4,
-        resolvedComplaints: 6,
-        activeVehicles: 3,
-        wardEfficiency: '84.5%'
+        const res = await request(app)
+            .get('/api/dashboard/summary')
+            .set('Authorization', `Bearer ${supervisorToken}`);
+
+        expect(res.statusCode).toBe(200);
+        expect(res.body.success).toBe(true);
+        expect(res.body.data).toEqual({
+            totalComplaints: 10,
+            pendingComplaints: 4,
+            inProgressComplaints: 2,
+            resolvedComplaints: 4,
+            activeVehicles: 3
+        });
     });
-});
 
+    test('GET dashboard summary allows an Admin', async () => {
+        db.query
+            .mockResolvedValueOnce([[
+                {
+                    totalComplaints: 0,
+                    pendingComplaints: 0,
+                    inProgressComplaints: 0,
+                    resolvedComplaints: 0
+                }
+            ]])
+            .mockResolvedValueOnce([[
+                { activeVehicles: 0 }
+            ]]);
+
+        const res = await request(app)
+            .get('/api/dashboard/summary')
+            .set('Authorization', `Bearer ${adminToken}`);
+
+        expect(res.statusCode).toBe(200);
+        expect(res.body.success).toBe(true);
+        expect(res.body.data).toEqual({
+            totalComplaints: 0,
+            pendingComplaints: 0,
+            inProgressComplaints: 0,
+            resolvedComplaints: 0,
+            activeVehicles: 0
+        });
+    });
+
+    test('GET dashboard summary rejects a missing token', async () => {
+        const res = await request(app)
+            .get('/api/dashboard/summary');
+
+        expect(res.statusCode).toBe(401);
+    });
+
+    test('GET dashboard summary rejects a Citizen', async () => {
+        const res = await request(app)
+            .get('/api/dashboard/summary')
+            .set('Authorization', `Bearer ${citizenToken}`);
+
+        expect(res.statusCode).toBe(403);
+    });
+
+    test('GET dashboard summary rejects a Worker', async () => {
+        const res = await request(app)
+            .get('/api/dashboard/summary')
+            .set('Authorization', `Bearer ${workerToken}`);
+
+        expect(res.statusCode).toBe(403);
+    });
+
+    // Complaints API
 
     test('GET complaints rejects a missing token', async () => {
-        const res = await request(app).get('/api/complaints');
+        const res = await request(app)
+            .get('/api/complaints');
 
         expect(res.statusCode).toBe(401);
     });

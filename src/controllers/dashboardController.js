@@ -1,4 +1,4 @@
-// Dashboard Summary Controller with Database Integration
+
 const db = require('../config/db');
 
 exports.getDashboardSummary = async (req, res, next) => {
@@ -9,6 +9,9 @@ exports.getDashboardSummary = async (req, res, next) => {
                 COALESCE(SUM(CASE
                     WHEN status = 'Pending' THEN 1 ELSE 0
                 END), 0) AS pendingComplaints,
+                COALESCE(SUM(CASE
+                    WHEN status = 'In-Progress' THEN 1 ELSE 0
+                END), 0) AS inProgressComplaints,
                 COALESCE(SUM(CASE
                     WHEN status = 'Resolved' THEN 1 ELSE 0
                 END), 0) AS resolvedComplaints
@@ -24,9 +27,11 @@ exports.getDashboardSummary = async (req, res, next) => {
         const stats = {
             totalComplaints: Number(complaintRows[0].totalComplaints),
             pendingComplaints: Number(complaintRows[0].pendingComplaints),
+            inProgressComplaints: Number(
+                complaintRows[0].inProgressComplaints
+            ),
             resolvedComplaints: Number(complaintRows[0].resolvedComplaints),
-            activeVehicles: Number(vehicleRows[0].activeVehicles),
-            wardEfficiency: '84.5%'
+            activeVehicles: Number(vehicleRows[0].activeVehicles)
         };
 
         return res.status(200).json({
