@@ -1,3 +1,4 @@
+
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
@@ -51,6 +52,26 @@ interface ComplaintsResponse {
   data: Complaint[]
 }
 
+interface TrendPoint {
+  date: string
+  received: number
+  currentlyResolved: number
+}
+
+interface VehicleStatus {
+  name: string
+  value: number
+}
+
+interface ChartsResponse {
+  success: boolean
+  data: {
+    period: string
+    complaintsTrend: TrendPoint[]
+    vehicleStatus: VehicleStatus[]
+  }
+}
+
 const initialSummary: DashboardSummary = {
   totalComplaints: 0,
   pendingComplaints: 0,
@@ -59,21 +80,19 @@ const initialSummary: DashboardSummary = {
   activeVehicles: 0,
 }
 
-const complaintsTrend = [
-  { month: 'Jan', received: 35, resolved: 27 },
-  { month: 'Feb', received: 43, resolved: 34 },
-  { month: 'Mar', received: 39, resolved: 32 },
-  { month: 'Apr', received: 55, resolved: 43 },
-  { month: 'May', received: 46, resolved: 39 },
-  { month: 'Jun', received: 62, resolved: 51 },
+const periodOptions = [
+  { label: 'Last 6 months', value: '6m' },
+  { label: 'Last 30 days', value: '30d' },
+  { label: 'Last 7 days', value: '7d' },
 ]
 
-const sampleVehicleStatus = [
-  { name: 'Active', value: 50, color: '#22d3bb' },
-  { name: 'Idle', value: 10, color: '#38bdf8' },
-  { name: 'Maintenance', value: 6, color: '#a78bfa' },
-  { name: 'Out of Service', value: 2, color: '#fb7185' },
-]
+const vehicleColors: Record<string, string> = {
+  Active: '#22d3bb',
+  Available: '#38bdf8',
+  Assigned: '#a78bfa',
+  Maintenance: '#fb923c',
+  Inactive: '#fb7185',
+}
 
 const statusStyles: Record<string, string> = {
   Pending: 'border-orange-400/20 bg-orange-400/10 text-orange-300',
@@ -120,15 +139,13 @@ function PanelHeading({
 }
 
 function formatStatus(status: string) {
-  if (status === 'In-Progress') return 'In Progress'
-  return status
+  return status === 'In-Progress' ? 'In Progress' : status
 }
 
 function formatComplaintDate(date?: string) {
   if (!date) return '—'
 
   const parsed = new Date(date)
-
   if (Number.isNaN(parsed.getTime())) return '—'
 
   return parsed.toLocaleDateString('en-IN', {
@@ -138,30 +155,54 @@ function formatComplaintDate(date?: string) {
   })
 }
 
+function formatChartDate(date: string, period: string) {
+  // Treat SQL DATE strings as calendar dates rather than UTC timestamps.
+  const parts = date.slice(0, 10).split('-').map(Number)
+  const parsed = new Date(parts[0], parts[1] - 1, parts[2])
+
+  if (Number.isNaN(parsed.getTime())) return date
+
+  return parsed.toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: period === '6m' ? 'short' : '2-digit',
+    ...(period === '6m' ? { year: '2-digit' } : {}),
+  })
+}
+
 function StatusBadge({ status }: { status: string }) {
+  const formatted = formatStatus(status)
+
   return (
     <span
       className={`inline-flex whitespace-nowrap rounded-md border px-2 py-1 text-[10px] font-medium ${
-        statusStyles[formatStatus(status)] ??
+        statusStyles[formatted] ??
         'border-slate-600 bg-slate-700/30 text-slate-300'
       }`}
     >
-      {formatStatus(status)}
+      {formatted}
     </span>
   )
 }
 
 export default function DashboardPage() {
-  const [period, setPeriod] = useState('Last 6 months')
+  const [period, setPeriod] = useState('6m')
   const [showPeriodOptions, setShowPeriodOptions] = useState(false)
 
-  const [summary, setSummary] = useState<DashboardSummary>(initialSummary)
+  const [summary, setSummary] =
+    useState<DashboardSummary>(initialSummary)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+
+  const [complaintsTrend, setComplaintsTrend] = useState<TrendPoint[]>([])
+  const [vehicleStatus, setVehicleStatus] = useState<VehicleStatus[]>([])
+  const [chartsLoading, setChartsLoading] = useState(true)
+  const [chartsError, setChartsError] = useState('')
 
   const [recentComplaints, setRecentComplaints] = useState<Complaint[]>([])
   const [complaintsLoading, setComplaintsLoading] = useState(true)
   const [complaintsError, setComplaintsError] = useState('')
+
+  const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => {
     let active = true
@@ -180,17 +221,11 @@ export default function DashboardPage() {
           throw new Error('The server returned an invalid dashboard response.')
         }
 
-        if (active) {
-          setSummary(response.data.data)
-        }
+        if (active) setSummary(response.data.data)
       } catch (err) {
-        if (active) {
-          setError(getApiErrorMessage(err))
-        }
+        if (active) setError(getApiErrorMessage(err))
       } finally {
-        if (active) {
-          setLoading(false)
-        }
+        if (active) setLoading(false)
       }
     }
 
@@ -199,7 +234,51 @@ export default function DashboardPage() {
     return () => {
       active = false
     }
-  }, [])
+  }, [refreshKey])
+
+  useEffect(() => {
+    let active = true
+
+    async function fetchCharts() {
+      setChartsLoading(true)
+      setChartsError('')
+
+      try {
+        const response = await apiClient.get<ChartsResponse>(
+          '/dashboard/charts',
+          { params: { period } },
+        )
+
+        if (
+          !response.data.success ||
+          !response.data.data ||
+          !Array.isArray(response.data.data.complaintsTrend) ||
+          !Array.isArray(response.data.data.vehicleStatus)
+        ) {
+          throw new Error('The server returned invalid chart data.')
+        }
+
+        if (active) {
+          setComplaintsTrend(response.data.data.complaintsTrend)
+          setVehicleStatus(response.data.data.vehicleStatus)
+        }
+      } catch (err) {
+        if (active) {
+          setComplaintsTrend([])
+          setVehicleStatus([])
+          setChartsError(getApiErrorMessage(err))
+        }
+      } finally {
+        if (active) setChartsLoading(false)
+      }
+    }
+
+    void fetchCharts()
+
+    return () => {
+      active = false
+    }
+  }, [period, refreshKey])
 
   useEffect(() => {
     let active = true
@@ -209,7 +288,8 @@ export default function DashboardPage() {
       setComplaintsError('')
 
       try {
-        const response = await apiClient.get<ComplaintsResponse>('/complaints')
+        const response =
+          await apiClient.get<ComplaintsResponse>('/complaints')
 
         if (
           !response.data.success ||
@@ -219,16 +299,22 @@ export default function DashboardPage() {
         }
 
         if (active) {
-          setRecentComplaints(response.data.data.slice(0, 5))
+          const sorted = [...response.data.data].sort((a, b) => {
+            const dateA = a.created_at
+              ? new Date(a.created_at).getTime()
+              : 0
+            const dateB = b.created_at
+              ? new Date(b.created_at).getTime()
+              : 0
+            return dateB - dateA
+          })
+
+          setRecentComplaints(sorted.slice(0, 5))
         }
       } catch (err) {
-        if (active) {
-          setComplaintsError(getApiErrorMessage(err))
-        }
+        if (active) setComplaintsError(getApiErrorMessage(err))
       } finally {
-        if (active) {
-          setComplaintsLoading(false)
-        }
+        if (active) setComplaintsLoading(false)
       }
     }
 
@@ -237,7 +323,11 @@ export default function DashboardPage() {
     return () => {
       active = false
     }
-  }, [])
+  }, [refreshKey])
+
+  const selectedPeriod =
+    periodOptions.find((option) => option.value === period)?.label ??
+    'Last 6 months'
 
   const metrics = [
     {
@@ -269,6 +359,13 @@ export default function DashboardPage() {
       background: 'bg-purple-400/10',
     },
   ]
+
+  const totalVehicles = vehicleStatus.reduce(
+    (total, item) => total + item.value,
+    0,
+  )
+
+  const chartUnavailable = chartsError || error
 
   return (
     <div className="space-y-5">
@@ -308,20 +405,22 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {error && (
+      {(error || chartsError) && (
         <div
           role="alert"
           className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-red-400/20 bg-red-400/[0.06] px-4 py-3"
         >
           <div>
             <p className="text-xs font-medium text-red-300">
-              Could not load live dashboard metrics
+              Some dashboard data could not be loaded
             </p>
-            <p className="mt-1 text-xs text-slate-400">{error}</p>
+            <p className="mt-1 text-xs text-slate-400">
+              {[error, chartsError].filter(Boolean).join(' ')}
+            </p>
           </div>
           <button
             type="button"
-            onClick={() => window.location.reload()}
+            onClick={() => setRefreshKey((value) => value + 1)}
             className="rounded-lg border border-red-400/30 px-3 py-2 text-xs text-red-200 hover:bg-red-400/10"
           >
             Retry
@@ -330,11 +429,11 @@ export default function DashboardPage() {
       )}
 
       <p className="rounded-lg border border-emerald-400/15 bg-emerald-400/[0.04] px-3 py-2 text-[10px] text-emerald-200/80">
-        {loading
-          ? 'Loading live dashboard metrics…'
-          : error
-            ? 'Live metrics unavailable.'
-            : 'Complaint counts and active vehicle count are live. The trend chart and vehicle status breakdown are illustrative sample data.'}
+        {loading || chartsLoading
+          ? 'Loading live dashboard data…'
+          : chartUnavailable
+            ? 'Some live dashboard data is unavailable. Use Retry to try again.'
+            : 'Dashboard metrics and chart data are loaded from the database.'}
       </p>
 
       <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-4">
@@ -363,7 +462,11 @@ export default function DashboardPage() {
                 </span>
               </div>
               <p className="mt-1.5 text-[10px] text-slate-500">
-                {loading ? 'Loading…' : error ? 'Unavailable' : 'Live database value'}
+                {loading
+                  ? 'Loading…'
+                  : error
+                    ? 'Unavailable'
+                    : 'Live database value'}
               </p>
             </Panel>
           )
@@ -374,7 +477,7 @@ export default function DashboardPage() {
         <Panel className="p-4 sm:p-5">
           <PanelHeading
             title="Complaints Trend"
-            subtitle="Illustrative complaint volume — historical API not connected"
+            subtitle="Complaints received, grouped by creation date"
             action={
               <div className="relative">
                 <button
@@ -383,27 +486,29 @@ export default function DashboardPage() {
                   className="flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-[10px] text-slate-300 hover:border-emerald-400/30"
                   aria-expanded={showPeriodOptions}
                 >
-                  {period}
+                  {selectedPeriod}
                   <ChevronDown size={13} />
                 </button>
 
                 {showPeriodOptions && (
                   <div className="absolute right-0 top-full z-20 mt-2 w-36 overflow-hidden rounded-lg border border-slate-700 bg-[#111b29] p-1 shadow-xl">
-                    {['Last 6 months', 'Last 30 days', 'Last 7 days'].map(
-                      (option) => (
-                        <button
-                          type="button"
-                          key={option}
-                          onClick={() => {
-                            setPeriod(option)
-                            setShowPeriodOptions(false)
-                          }}
-                          className="block w-full rounded-md px-3 py-2 text-left text-[11px] text-slate-300 hover:bg-emerald-400/10 hover:text-emerald-300"
-                        >
-                          {option}
-                        </button>
-                      ),
-                    )}
+                    {periodOptions.map((option) => (
+                      <button
+                        type="button"
+                        key={option.value}
+                        onClick={() => {
+                          setPeriod(option.value)
+                          setShowPeriodOptions(false)
+                        }}
+                        className={`block w-full rounded-md px-3 py-2 text-left text-[11px] hover:bg-emerald-400/10 hover:text-emerald-300 ${
+                          period === option.value
+                            ? 'text-emerald-300'
+                            : 'text-slate-300'
+                        }`}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
                   </div>
                 )}
               </div>
@@ -417,136 +522,188 @@ export default function DashboardPage() {
             </span>
             <span className="flex items-center gap-2">
               <span className="h-2 w-2 rounded-full bg-emerald-400" />
-              Resolved
+              Currently resolved
             </span>
           </div>
 
-          <div className="h-[245px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart
-                data={complaintsTrend}
-                margin={{ top: 8, right: 5, left: -22, bottom: 0 }}
+          {chartsLoading ? (
+            <div className="flex h-[245px] items-center justify-center text-xs text-slate-400">
+              Loading complaints trend…
+            </div>
+          ) : chartsError ? (
+            <div className="flex h-[245px] flex-col items-center justify-center gap-2 text-center">
+              <p className="text-xs text-red-300">
+                Could not load complaints trend.
+              </p>
+              <button
+                type="button"
+                onClick={() => setRefreshKey((value) => value + 1)}
+                className="text-xs text-emerald-300 hover:text-emerald-200"
               >
-                <CartesianGrid
-                  stroke="rgba(148,163,184,0.10)"
-                  strokeDasharray="3 5"
-                  vertical={false}
-                />
-                <XAxis
-                  dataKey="month"
-                  tick={{ fill: '#718399', fontSize: 10 }}
-                  axisLine={false}
-                  tickLine={false}
-                  dy={8}
-                />
-                <YAxis
-                  tick={{ fill: '#718399', fontSize: 10 }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <Tooltip
-                  contentStyle={{
-                    background: '#101925',
-                    border: '1px solid #334155',
-                    borderRadius: 10,
-                    fontSize: 11,
-                  }}
-                  labelStyle={{ color: '#e2e8f0' }}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="received"
-                  name="Received"
-                  stroke="#38bdf8"
-                  strokeWidth={2}
-                  dot={false}
-                  activeDot={{ r: 4 }}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="resolved"
-                  name="Resolved"
-                  stroke="#34d399"
-                  strokeWidth={2}
-                  dot={false}
-                  activeDot={{ r: 4 }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </Panel>
-
-        <Panel className="p-4 sm:p-5">
-          <PanelHeading
-            title="Vehicle Status"
-            subtitle="Sample fleet breakdown; only active count is live"
-            action={<MoreHorizontal size={15} className="text-slate-400" />}
-          />
-
-          <div className="grid grid-cols-1 items-center gap-4 sm:grid-cols-[1fr_1fr]">
-            <div className="relative mx-auto h-[190px] w-full max-w-[230px]">
+                Try again
+              </button>
+            </div>
+          ) : complaintsTrend.length === 0 ? (
+            <div className="flex h-[245px] items-center justify-center text-xs text-slate-400">
+              No complaints recorded in this period.
+            </div>
+          ) : (
+            <div className="h-[245px] w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={sampleVehicleStatus}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    innerRadius="62%"
-                    outerRadius="88%"
-                    paddingAngle={3}
-                    stroke="none"
-                  >
-                    {sampleVehicleStatus.map((item) => (
-                      <Cell key={item.name} fill={item.color} />
-                    ))}
-                  </Pie>
+                <LineChart
+                  data={complaintsTrend}
+                  margin={{ top: 8, right: 5, left: -22, bottom: 0 }}
+                >
+                  <CartesianGrid
+                    stroke="rgba(148,163,184,0.10)"
+                    strokeDasharray="3 5"
+                    vertical={false}
+                  />
+                  <XAxis
+                    dataKey="date"
+                    tickFormatter={(value: string) =>
+                      formatChartDate(value, period)
+                    }
+                    tick={{ fill: '#718399', fontSize: 10 }}
+                    axisLine={false}
+                    tickLine={false}
+                    dy={8}
+                  />
+                  <YAxis
+                    allowDecimals={false}
+                    tick={{ fill: '#718399', fontSize: 10 }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
                   <Tooltip
+                    labelFormatter={(value) =>
+                      formatChartDate(String(value), period)
+                    }
                     contentStyle={{
                       background: '#101925',
                       border: '1px solid #334155',
                       borderRadius: 10,
                       fontSize: 11,
                     }}
+                    labelStyle={{ color: '#e2e8f0' }}
                   />
-                </PieChart>
+                  <Line
+                    type="monotone"
+                    dataKey="received"
+                    name="Received"
+                    stroke="#38bdf8"
+                    strokeWidth={2}
+                    dot={false}
+                    activeDot={{ r: 4 }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="currentlyResolved"
+                    name="Currently resolved"
+                    stroke="#34d399"
+                    strokeWidth={2}
+                    dot={false}
+                    activeDot={{ r: 4 }}
+                  />
+                </LineChart>
               </ResponsiveContainer>
-              <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-                <Truck size={17} className="mb-1 text-emerald-300" />
-                <span className="text-2xl font-semibold text-white">
-                  {loading || error ? '—' : summary.activeVehicles}
-                </span>
-                <span className="text-[10px] text-slate-500">
-                  Active vehicles
-                </span>
-              </div>
             </div>
+          )}
+          <p className="mt-2 text-[10px] text-slate-500">
+            Currently resolved complaints are grouped by their creation date;
+            this is not a historical resolution timeline.
+          </p>
+        </Panel>
 
-            <div className="space-y-4">
-              {sampleVehicleStatus.map((item) => (
-                <div
-                  key={item.name}
-                  className="flex items-center justify-between gap-3"
-                >
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span
-                      className="h-2 w-2 shrink-0 rounded-full"
-                      style={{ backgroundColor: item.color }}
+        <Panel className="p-4 sm:p-5">
+          <PanelHeading
+            title="Vehicle Status"
+            subtitle="Live fleet breakdown by recorded status"
+            action={<MoreHorizontal size={15} className="text-slate-400" />}
+          />
+
+          {chartsLoading ? (
+            <div className="flex h-[220px] items-center justify-center text-xs text-slate-400">
+              Loading vehicle statuses…
+            </div>
+          ) : chartsError ? (
+            <div className="flex h-[220px] items-center justify-center text-center text-xs text-red-300">
+              Could not load vehicle statuses.
+            </div>
+          ) : vehicleStatus.length === 0 ? (
+            <div className="flex h-[220px] items-center justify-center text-xs text-slate-400">
+              No vehicles found.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 items-center gap-4 sm:grid-cols-[1fr_1fr]">
+              <div className="relative mx-auto h-[190px] w-full max-w-[230px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={vehicleStatus}
+                      dataKey="value"
+                      nameKey="name"
+                      cx="50%"
+                      cy="50%"
+                      innerRadius="62%"
+                      outerRadius="88%"
+                      paddingAngle={3}
+                      stroke="none"
+                    >
+                      {vehicleStatus.map((item) => (
+                        <Cell
+                          key={item.name}
+                          fill={vehicleColors[item.name] ?? '#94a3b8'}
+                        />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      contentStyle={{
+                        background: '#101925',
+                        border: '1px solid #334155',
+                        borderRadius: 10,
+                        fontSize: 11,
+                      }}
                     />
-                    <span className="text-[11px] text-slate-400">
-                      {item.name}
-                    </span>
-                  </div>
-                  <span className="text-xs font-semibold text-slate-200">
-                    {item.name === 'Active' && !loading && !error
-                      ? summary.activeVehicles
-                      : '—'}
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+                  <Truck size={17} className="mb-1 text-emerald-300" />
+                  <span className="text-2xl font-semibold text-white">
+                    {totalVehicles}
+                  </span>
+                  <span className="text-[10px] text-slate-500">
+                    Total vehicles
                   </span>
                 </div>
-              ))}
+              </div>
+
+              <div className="space-y-4">
+                {vehicleStatus.map((item) => (
+                  <div
+                    key={item.name}
+                    className="flex items-center justify-between gap-3"
+                  >
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span
+                        className="h-2 w-2 shrink-0 rounded-full"
+                        style={{
+                          backgroundColor:
+                            vehicleColors[item.name] ?? '#94a3b8',
+                        }}
+                      />
+                      <span className="text-[11px] text-slate-400">
+                        {item.name}
+                      </span>
+                    </div>
+                    <span className="text-xs font-semibold text-slate-200">
+                      {item.value}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
         </Panel>
       </section>
 
