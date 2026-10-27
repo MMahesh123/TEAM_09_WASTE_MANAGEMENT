@@ -1,0 +1,441 @@
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+.wms-auth-page {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  min-height: 100vh;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 32px 20px;
+  color: #f4f8fb;
+  background:
+    radial-gradient(ellipse at 80% 100%, #063b36 0%, transparent 38%),
+    radial-gradient(ellipse at 0% 100%, #191346 0%, transparent 28%),
+    #050b12;
+  font-family: Inter, system-ui, sans-serif;
+}
+
+.wms-auth-glow {
+  position: absolute;
+  z-index: -1;
+  width: 430px;
+  height: 430px;
+  border: 1px solid rgb(52 211 153 / 10%);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.wms-auth-glow-one {
+  top: -250px;
+  right: -90px;
+  box-shadow: 0 0 100px rgb(16 185 129 / 7%);
+}
+
+.wms-auth-glow-two {
+  bottom: -330px;
+  left: -120px;
+  border-color: rgb(99 102 241 / 12%);
+}
+
+.wms-auth-stars {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  opacity: 0.24;
+  pointer-events: none;
+  background-image: radial-gradient(#8ca7b8 0.7px, transparent 0.7px);
+  background-size: 29px 29px;
+  mask-image: linear-gradient(to bottom, black, transparent 85%);
+}
+
+.wms-auth-card {
+  display: grid;
+  grid-template-columns: 0.93fr 1.07fr;
+  width: min(100%, 1080px);
+  min-height: 610px;
+  overflow: hidden;
+  border: 1px solid rgb(148 163 184 / 26%);
+  border-radius: 17px;
+  background: rgb(6 13 21 / 96%);
+  box-shadow:
+    0 30px 100px rgb(0 0 0 / 55%),
+    0 0 35px rgb(16 185 129 / 5%),
+    inset 0 1px rgb(255 255 255 / 4%);
+}
+
+.wms-login-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-width: 0;
+  padding: 40px clamp(28px, 4vw, 58px) 26px;
+  border-right: 1px solid rgb(148 163 184 / 13%);
+  background:
+    radial-gradient(ellipse at 10% 100%, rgb(30 64 90 / 13%), transparent 60%),
+    #080f18;
+}
+
+.wms-auth-brand {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 11px;
+  color: #f8fafc;
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: -0.4px;
+  text-decoration: none;
+}
+
+.wms-brand-icon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  color: #4ade80;
+  filter: drop-shadow(0 0 10px rgb(74 222 128 / 22%));
+}
+
+.wms-login-content {
+  width: 100%;
+  max-width: 390px;
+  margin: 36px auto;
+}
+
+.wms-auth-eyebrow {
+  margin: 0 0 12px;
+  color: #4adea3;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 2px;
+}
+
+.wms-login-content h1 {
+  margin: 0;
+  color: #f8fafc;
+  font-size: clamp(26px, 3vw, 34px);
+  font-weight: 750;
+  letter-spacing: -1.2px;
+  line-height: 1.2;
+}
+
+.wms-auth-subtitle {
+  margin: 12px 0 0;
+  color: #98a7b8;
+  font-size: 12px;
+  line-height: 1.8;
+}
+
+.wms-auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  margin-top: 30px;
+}
+
+.wms-field label {
+  display: block;
+  margin-bottom: 9px;
+  color: #d5dde7;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.wms-input-wrap {
+  display: flex;
+  min-height: 46px;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  border: 1px solid #263747;
+  border-radius: 7px;
+  background: #0e1a26;
+  color: #71869a;
+  transition: border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.wms-input-wrap:focus-within {
+  border-color: #34d399;
+  box-shadow: 0 0 0 3px rgb(52 211 153 / 9%);
+}
+
+.wms-input-wrap input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #f8fafc;
+  font: inherit;
+  font-size: 12px;
+}
+
+.wms-input-wrap input::placeholder {
+  color: #667789;
+}
+
+.wms-password-toggle {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: #8192a3;
+  cursor: pointer;
+}
+
+.wms-password-toggle:hover {
+  color: #4adea3;
+}
+
+.wms-forgot-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: -10px;
+}
+
+.wms-text-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #4adea3;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.wms-text-link:hover,
+.wms-register-prompt a:hover {
+  color: #a7f3d0;
+}
+
+.wms-auth-error {
+  padding: 11px 13px;
+  border: 1px solid rgb(251 113 133 / 25%);
+  border-radius: 7px;
+  background: rgb(251 113 133 / 7%);
+  color: #fda4af;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.wms-signin-button {
+  display: flex;
+  min-height: 47px;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  border: 0;
+  border-radius: 8px;
+  background: linear-gradient(105deg, #19e6a0, #55f2c5);
+  box-shadow: 0 5px 22px rgb(16 185 129 / 19%);
+  color: #03251c;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: transform 180ms ease, box-shadow 180ms ease, filter 180ms ease;
+}
+
+.wms-signin-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 30px rgb(16 185 129 / 30%);
+  filter: brightness(1.05);
+}
+
+.wms-signin-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.wms-register-prompt {
+  margin: 24px 0 0;
+  color: #8493a4;
+  font-size: 11px;
+  text-align: center;
+}
+
+.wms-register-prompt a {
+  color: #4adea3;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.wms-auth-security {
+  margin: 0;
+  color: #586879;
+  font-size: 10px;
+  text-align: center;
+}
+
+.wms-login-visual {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 610px;
+  flex-direction: column;
+  justify-content: flex-end;
+  overflow: hidden;
+  margin: 20px;
+  border: 1px solid rgb(125 211 252 / 22%);
+  border-radius: 11px;
+  background: #0b2c32;
+}
+
+.wms-city-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  animation: wms-city-reveal 900ms ease-out both;
+}
+
+.wms-city-shade {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, rgb(2 12 19 / 0%) 24%, rgb(2 12 19 / 25%) 46%, rgb(2 12 19 / 94%) 100%),
+    linear-gradient(90deg, rgb(3 15 22 / 15%), transparent 75%);
+}
+
+.wms-city-caption {
+  position: relative;
+  z-index: 1;
+  padding: 34px clamp(20px, 3vw, 40px);
+}
+
+.wms-city-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 18px;
+  color: #8af5d0;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1.4px;
+}
+
+.wms-city-caption h2 {
+  margin: 0;
+  color: #fff;
+  font-size: clamp(25px, 3vw, 38px);
+  font-weight: 800;
+  letter-spacing: -1.3px;
+  line-height: 1.12;
+  text-shadow: 0 2px 18px rgb(0 0 0 / 25%);
+}
+
+.wms-city-caption h2 span {
+  color: #71f2c5;
+}
+
+.wms-city-caption > p {
+  max-width: 300px;
+  margin: 14px 0 0;
+  color: #d2e3e7;
+  font-size: 11px;
+  line-height: 1.8;
+}
+
+.wms-visual-border {
+  position: absolute;
+  inset: 0;
+  border: 1px solid rgb(255 255 255 / 7%);
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+@keyframes wms-city-reveal {
+  from {
+    opacity: 0.65;
+    transform: scale(1.035);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (min-width: 1200px) {
+  .wms-auth-card {
+    min-height: 650px;
+  }
+
+  .wms-login-visual {
+    min-height: 608px;
+  }
+}
+
+@media (max-width: 760px) {
+  .wms-auth-page {
+    padding: 16px;
+  }
+
+  .wms-auth-card {
+    grid-template-columns: 1fr;
+    max-width: 480px;
+    border-radius: 14px;
+  }
+
+  .wms-login-panel {
+    order: 2;
+    padding: 28px clamp(22px, 6vw, 38px) 22px;
+    border-right: 0;
+  }
+
+  .wms-login-visual {
+    order: 1;
+    min-height: 280px;
+    margin: 12px 12px 0;
+  }
+
+  .wms-city-caption {
+    padding: 24px;
+  }
+
+  .wms-city-caption h2 {
+    font-size: 27px;
+  }
+
+  .wms-city-tag {
+    margin-bottom: 12px;
+    font-size: 8px;
+  }
+
+  .wms-login-content {
+    margin: 30px auto;
+  }
+}
+
+@media (max-width: 380px) {
+  .wms-login-visual {
+    min-height: 240px;
+  }
+
+  .wms-city-caption h2 {
+    font-size: 23px;
+  }
+
+  .wms-auth-form {
+    gap: 17px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wms-city-image {
+    animation: none;
+  }
+
+  .wms-signin-button,
+  .wms-input-wrap {
+    transition: none;
+  }
+}

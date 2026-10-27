@@ -1,0 +1,466 @@
+
+.wms-register-page {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  min-height: 100vh;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 28px 20px;
+  color: #f4f8fb;
+  background:
+    radial-gradient(ellipse at 80% 100%, #063b36 0%, transparent 38%),
+    radial-gradient(ellipse at 0% 100%, #191346 0%, transparent 28%),
+    #050b12;
+  font-family: Inter, system-ui, sans-serif;
+}
+
+.wms-register-glow {
+  position: absolute;
+  z-index: -1;
+  width: 430px;
+  height: 430px;
+  border: 1px solid rgb(52 211 153 / 10%);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.wms-register-glow-one {
+  top: -250px;
+  right: -90px;
+  box-shadow: 0 0 100px rgb(16 185 129 / 7%);
+}
+
+.wms-register-glow-two {
+  bottom: -330px;
+  left: -120px;
+  border-color: rgb(99 102 241 / 12%);
+}
+
+.wms-register-stars {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  opacity: 0.24;
+  pointer-events: none;
+  background-image: radial-gradient(#8ca7b8 0.7px, transparent 0.7px);
+  background-size: 29px 29px;
+  mask-image: linear-gradient(to bottom, black, transparent 85%);
+}
+
+.wms-register-card {
+  display: grid;
+  grid-template-columns: 0.93fr 1.07fr;
+  width: min(100%, 1080px);
+  min-height: 680px;
+  overflow: hidden;
+  border: 1px solid rgb(148 163 184 / 26%);
+  border-radius: 17px;
+  background: rgb(6 13 21 / 96%);
+  box-shadow:
+    0 30px 100px rgb(0 0 0 / 55%),
+    0 0 35px rgb(16 185 129 / 5%),
+    inset 0 1px rgb(255 255 255 / 4%);
+}
+
+.wms-register-panel {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 30px clamp(26px, 3.5vw, 48px) 22px;
+  border-right: 1px solid rgb(148 163 184 / 13%);
+  background:
+    radial-gradient(ellipse at 10% 100%, rgb(30 64 90 / 13%), transparent 60%),
+    #080f18;
+}
+
+.wms-register-brand {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 11px;
+  color: #f8fafc;
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: -0.4px;
+  text-decoration: none;
+}
+
+.wms-register-brand-icon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  color: #4ade80;
+  filter: drop-shadow(0 0 10px rgb(74 222 128 / 22%));
+}
+
+.wms-register-content {
+  width: 100%;
+  max-width: 390px;
+  margin: 22px auto;
+}
+
+.wms-register-eyebrow {
+  margin: 0 0 10px;
+  color: #4adea3;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 2px;
+}
+
+.wms-register-content h1 {
+  margin: 0;
+  color: #f8fafc;
+  font-size: clamp(25px, 2.6vw, 32px);
+  font-weight: 750;
+  letter-spacing: -1px;
+  line-height: 1.2;
+}
+
+.wms-register-subtitle {
+  margin: 10px 0 0;
+  color: #98a7b8;
+  font-size: 12px;
+  line-height: 1.8;
+}
+
+.wms-register-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 23px;
+}
+
+.wms-register-field label {
+  display: block;
+  margin-bottom: 7px;
+  color: #d5dde7;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.wms-register-input {
+  display: flex;
+  min-height: 43px;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  border: 1px solid #263747;
+  border-radius: 7px;
+  background: #0e1a26;
+  color: #71869a;
+  transition: border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.wms-register-input:focus-within {
+  border-color: #34d399;
+  box-shadow: 0 0 0 3px rgb(52 211 153 / 9%);
+}
+
+.wms-register-input input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #f8fafc;
+  font: inherit;
+  font-size: 12px;
+}
+
+.wms-register-input input::placeholder {
+  color: #667789;
+}
+
+.wms-register-password-toggle {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: #8192a3;
+  cursor: pointer;
+}
+
+.wms-register-password-toggle:hover {
+  color: #4adea3;
+}
+
+.wms-register-error {
+  padding: 10px 12px;
+  border: 1px solid rgb(251 113 133 / 25%);
+  border-radius: 7px;
+  background: rgb(251 113 133 / 7%);
+  color: #fda4af;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.wms-register-notice {
+  padding: 11px 12px;
+  border: 1px solid rgb(103 232 249 / 12%);
+  border-radius: 8px;
+  background: rgb(103 232 249 / 4%);
+  color: #98a7b8;
+  font-size: 10px;
+  line-height: 1.7;
+}
+
+.wms-register-notice strong {
+  color: #67e8f9;
+  font-weight: 700;
+}
+
+.wms-register-submit {
+  display: flex;
+  min-height: 45px;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  border: 0;
+  border-radius: 8px;
+  background: linear-gradient(105deg, #19e6a0, #55f2c5);
+  box-shadow: 0 5px 22px rgb(16 185 129 / 19%);
+  color: #03251c;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: transform 180ms ease, box-shadow 180ms ease, filter 180ms ease;
+}
+
+.wms-register-submit:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 30px rgb(16 185 129 / 30%);
+  filter: brightness(1.05);
+}
+
+.wms-register-submit:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.wms-register-login-prompt {
+  margin: 19px 0 0;
+  color: #8493a4;
+  font-size: 11px;
+  text-align: center;
+}
+
+.wms-register-login-prompt a {
+  color: #4adea3;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.wms-register-login-prompt a:hover {
+  color: #a7f3d0;
+}
+
+.wms-register-footer {
+  margin: 0;
+  color: #586879;
+  font-size: 10px;
+  text-align: center;
+}
+
+.wms-register-visual {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 640px;
+  flex-direction: column;
+  justify-content: flex-end;
+  overflow: hidden;
+  margin: 18px;
+  border: 1px solid rgb(125 211 252 / 22%);
+  border-radius: 11px;
+  background: #0b2c32;
+}
+
+.wms-register-city-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  animation: wms-register-city-reveal 900ms ease-out both;
+}
+
+.wms-register-city-shade {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(
+      180deg,
+      rgb(2 12 19 / 0%) 24%,
+      rgb(2 12 19 / 25%) 46%,
+      rgb(2 12 19 / 94%) 100%
+    ),
+    linear-gradient(90deg, rgb(3 15 22 / 15%), transparent 75%);
+}
+
+.wms-register-city-caption {
+  position: relative;
+  z-index: 1;
+  padding: 34px clamp(20px, 3vw, 40px);
+}
+
+.wms-register-city-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 18px;
+  color: #8af5d0;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1.4px;
+}
+
+.wms-register-city-caption h2 {
+  margin: 0;
+  color: #fff;
+  font-size: clamp(25px, 3vw, 38px);
+  font-weight: 800;
+  letter-spacing: -1.3px;
+  line-height: 1.12;
+  text-shadow: 0 2px 18px rgb(0 0 0 / 25%);
+}
+
+.wms-register-city-caption h2 span {
+  color: #71f2c5;
+}
+
+.wms-register-city-caption > p {
+  max-width: 300px;
+  margin: 14px 0 0;
+  color: #d2e3e7;
+  font-size: 11px;
+  line-height: 1.8;
+}
+
+.wms-register-visual-border {
+  position: absolute;
+  inset: 0;
+  border: 1px solid rgb(255 255 255 / 7%);
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.wms-register-success {
+  text-align: center;
+}
+
+.wms-success-icon {
+  display: grid;
+  width: 62px;
+  height: 62px;
+  place-items: center;
+  margin: 0 auto 23px;
+  border: 1px solid rgb(74 222 128 / 20%);
+  border-radius: 18px;
+  background: rgb(74 222 128 / 8%);
+  color: #4adea3;
+}
+
+.wms-register-success .wms-register-submit {
+  margin-top: 25px;
+}
+
+.wms-register-card-success .wms-register-panel {
+  min-height: 590px;
+}
+
+@keyframes wms-register-city-reveal {
+  from {
+    opacity: 0.65;
+    transform: scale(1.035);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (min-width: 1200px) {
+  .wms-register-card {
+    min-height: 700px;
+  }
+
+  .wms-register-visual {
+    min-height: 660px;
+  }
+}
+
+@media (max-width: 760px) {
+  .wms-register-page {
+    padding: 16px;
+  }
+
+  .wms-register-card {
+    grid-template-columns: 1fr;
+    max-width: 480px;
+    border-radius: 14px;
+  }
+
+  .wms-register-panel {
+    order: 2;
+    padding: 26px clamp(22px, 6vw, 38px) 22px;
+    border-right: 0;
+  }
+
+  .wms-register-visual {
+    order: 1;
+    min-height: 270px;
+    margin: 12px 12px 0;
+  }
+
+  .wms-register-city-caption {
+    padding: 24px;
+  }
+
+  .wms-register-city-caption h2 {
+    font-size: 27px;
+  }
+
+  .wms-register-city-tag {
+    margin-bottom: 12px;
+    font-size: 8px;
+  }
+
+  .wms-register-content {
+    margin: 28px auto;
+  }
+
+  .wms-register-form {
+    gap: 16px;
+  }
+}
+
+@media (max-width: 380px) {
+  .wms-register-visual {
+    min-height: 235px;
+  }
+
+  .wms-register-city-caption h2 {
+    font-size: 23px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wms-register-city-image {
+    animation: none;
+  }
+
+  .wms-register-submit,
+  .wms-register-input {
+    transition: none;
+  }
+}
