@@ -1,5 +1,4 @@
-
- // Main Application Entry Point - Waste Management System Backend
+// Main Application Entry Point - Waste Management System Backend
 const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
@@ -35,8 +34,13 @@ app.get('/', (req, res) => {
 // Centralized Error Handling Middleware (after routes)
 app.use(errorHandler);
 
-module.exports = app;
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
-});
+
+// Only start listening if not running inside a test environment
+if (process.env.NODE_ENV !== 'test') {
+    app.listen(PORT, () => {
+        console.log(`Server is running on port ${PORT}`);
+    });
+}
+
+module.exports = app;
