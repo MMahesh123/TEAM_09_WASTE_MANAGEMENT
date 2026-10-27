@@ -2,14 +2,24 @@
 const express = require('express');
 const router = express.Router();
 
-const { getDashboardSummary } = require('../controllers/dashboardController');
+const {
+    getDashboardSummary,
+    getDashboardCharts
+} = require('../controllers/dashboardController');
+
 const { verifyRole } = require('../middleware/authMiddleware');
 
-// Only Admins and Supervisors can access dashboard statistics
+// Admin and Supervisor dashboard endpoints
 router.get(
     '/summary',
     verifyRole(['Admin', 'Supervisor']),
     getDashboardSummary
+);
+
+router.get(
+    '/charts',
+    verifyRole(['Admin', 'Supervisor']),
+    getDashboardCharts
 );
 
 exports.dashboardRoutes = router;
