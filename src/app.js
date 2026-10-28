@@ -9,6 +9,8 @@ const { complaintRoutes } = require('./routes/complaintRoutes');
 const { dashboardRoutes } = require('./routes/dashboardRoutes');
 const vehicleRoutes = require('./routes/vehicleRoutes');
 const wardRoutes = require('./routes/wardRoutes');
+const disposalRoutes = require('./routes/disposalRoutes');
+const paymentRoutes = require('./routes/paymentRoutes');
 const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
@@ -23,6 +25,8 @@ app.use('/api/complaints', complaintRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/vehicles', vehicleRoutes);
 app.use('/api/wards', wardRoutes);
+app.use('/api/disposal', disposalRoutes);
+app.use('/api/payments', paymentRoutes);
 
 // Base route
 app.get('/', (req, res) => {
