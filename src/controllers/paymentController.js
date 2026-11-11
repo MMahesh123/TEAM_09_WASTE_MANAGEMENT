@@ -74,15 +74,20 @@ exports.simulate = async (req, res) => {
   }
 };
 
+const STAFF_ROLES = ['Admin', 'Supervisor'];
+const PAYMENT_VIEW_ROLES = [...STAFF_ROLES, 'Worker'];
+const forbidden = (res) => res.status(403).json({ code: 403, message: 'Insufficient permissions' });
+
 exports.listPayments = async (req, res) => {
   try {
-    const isStaff = req.user.role === 'Admin' || req.user.role === 'Supervisor';
+    if (!PAYMENT_VIEW_ROLES.includes(req.user.role)) return forbidden(res);
+    const isStaff = STAFF_ROLES.includes(req.user.role);
     let workerId = null;
     if (isStaff && req.query.worker_id !== undefined) {
       workerId = parseId(req.query.worker_id);
       if (!workerId) return bad(res, 'Invalid worker_id');
     } else if (!isStaff) {
-      workerId = req.user.userId; // non-staff only see their own payments
+      workerId = req.user.userId; // workers only see their own payments
     }
     const [rows] = workerId
       ? await db.query('SELECT * FROM payments WHERE worker_id = ? ORDER BY created_at DESC', [workerId])
@@ -95,11 +100,12 @@ exports.listPayments = async (req, res) => {
 
 exports.getPayment = async (req, res) => {
   try {
+    if (!PAYMENT_VIEW_ROLES.includes(req.user.role)) return forbidden(res);
     const id = parseId(req.params.id);
     if (!id) return bad(res, 'Invalid payment id');
     const [rows] = await db.query('SELECT * FROM payments WHERE payment_id = ?', [id]);
     if (rows.length === 0) return res.status(404).json({ code: 404, message: 'Payment not found' });
-    const isStaff = req.user.role === 'Admin' || req.user.role === 'Supervisor';
+    const isStaff = STAFF_ROLES.includes(req.user.role);
     if (!isStaff && rows[0].worker_id !== req.user.userId) {
       return res.status(403).json({ code: 403, message: 'Insufficient permissions' });
     }
