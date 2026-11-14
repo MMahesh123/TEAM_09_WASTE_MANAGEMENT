@@ -1,7 +1,9 @@
-// Citizen Complaints Controller with Database Integration
+
 const db = require('../config/db');
 
 const VALID_STATUSES = ['Pending', 'In-Progress', 'Resolved'];
+
+const isCitizen = (req) => req.user?.role === 'Citizen';
 
 exports.getComplaints = async (req, res, next) => {
     try {
@@ -16,6 +18,12 @@ exports.getComplaints = async (req, res, next) => {
 
         let query = 'SELECT * FROM complaints WHERE 1=1';
         const params = [];
+
+        // Citizens may see only complaints belonging to their account.
+        if (isCitizen(req)) {
+            query += ' AND user_id = ?';
+            params.push(req.user.userId);
+        }
 
         if (ward) {
             query += ' AND ward = ?';
@@ -43,9 +51,14 @@ exports.createComplaint = async (req, res, next) => {
     try {
         const { ward, type, description } = req.body;
 
+        // Never trust a user ID supplied by the client.
+        const userId = req.user.userId;
+
         const [result] = await db.query(
-            'INSERT INTO complaints (ward, type, description, status) VALUES (?, ?, ?, ?)',
-            [ward, type, description || '', 'Pending']
+            `INSERT INTO complaints
+                (user_id, ward, type, description, status)
+             VALUES (?, ?, ?, ?, ?)`,
+            [userId, ward, type, description || '', 'Pending']
         );
 
         const [rows] = await db.query(
@@ -103,15 +116,21 @@ exports.updateComplaintStatus = async (req, res, next) => {
     }
 };
 
-// Get single complaint by ID
 exports.getComplaintById = async (req, res, next) => {
     try {
         const { id } = req.params;
 
-        const [rows] = await db.query(
-            'SELECT * FROM complaints WHERE id = ?',
-            [id]
-        );
+        let query = 'SELECT * FROM complaints WHERE id = ?';
+        const params = [id];
+
+        // Return 404 for another citizen's complaint, avoiding
+        // disclosure of whether that complaint exists.
+        if (isCitizen(req)) {
+            query += ' AND user_id = ?';
+            params.push(req.user.userId);
+        }
+
+        const [rows] = await db.query(query, params);
 
         if (rows.length === 0) {
             return res.status(404).json({
