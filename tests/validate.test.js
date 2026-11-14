@@ -21,3 +21,10 @@ describe('isISODate', () => {
     expect(isISODate(undefined)).toBe(false);
   });
 });
+
+describe('isTons', () => {
+  const { isTons } = require('../src/utils/validate');
+  it.each([0.01, 1, 12.5, 99.99, 99999999.99])('accepts %s', (v) => expect(isTons(v)).toBe(true));
+  it.each([0, -1, 1.005, 0.001, 100000000, 1e12, NaN, Infinity, '5', null, undefined])(
+    'rejects %s', (v) => expect(isTons(v)).toBe(false));
+});

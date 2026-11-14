@@ -10,6 +10,11 @@ const isISODate = (v) => {
   const dt = new Date(Date.UTC(y, m - 1, d));
   return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
 };
+// Largest value a DECIMAL(10,2) column can hold.
+const MAX_TONS = 99999999.99;
+// Positive number with at most 2 decimal places that fits a DECIMAL(10,2) column.
+// Without this, the database would silently round (or reject) values such as 1.005 or 1e12.
+const isTons = (v) => isPositiveNumber(v) && v <= MAX_TONS && Math.abs(Math.round(v * 100) - v * 100) < 1e-6;
 const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
 
-module.exports = { isPositiveNumber, isNonNegativeNumber, isNonEmptyString, parseId, isISODate, round2 };
+module.exports = { MAX_TONS, isTons, isPositiveNumber, isNonNegativeNumber, isNonEmptyString, parseId, isISODate, round2 };
