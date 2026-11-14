@@ -1,9 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const vehicleController = require('../controllers/vehicleController');
-const verifyRole = require('../middleware/roleMiddleware');
+const { verifyToken, verifyRole } = require('../middleware/authMiddleware');
 
-router.get('/', vehicleController.getAllVehicles);
+// Authenticated staff can view vehicles; Admin & Supervisor can manage them
+router.get('/', verifyToken, vehicleController.getAllVehicles);
 router.post('/', verifyRole(['Admin', 'Supervisor']), vehicleController.createVehicle);
 router.put('/:id/status', verifyRole(['Admin', 'Supervisor']), vehicleController.updateVehicleStatus);
 

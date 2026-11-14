@@ -37,21 +37,22 @@ exports.createVehicle = async (req, res) => {
 exports.updateVehicleStatus = async (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
+    const allowedStatuses = ['Available', 'Assigned', 'In Use', 'Maintenance'];
 
-    // 1. Validate status input
-    if (!status) {
-        return res.status(400).json({ error: "Status field is required for update." });
+    if (!status || !allowedStatuses.includes(status)) {
+        return res.status(400).json({
+            error: `Invalid status. Allowed values: ${allowedStatuses.join(', ')}`
+        });
     }
 
     try {
-        // 2. Check if the vehicle exists (404 handling)
-        const [vehicle] = await db.query('SELECT * FROM vehicles WHERE id = ?', [id]);
+        const [vehicle] = await db.query('SELECT id, status FROM vehicles WHERE id = ?', [id]);
         if (vehicle.length === 0) {
-            return res.status(404).json({ error: "Vehicle not found with the provided ID." });
+            return res.status(404).json({ error: 'Vehicle not found with the provided ID.' });
         }
 
         await db.query('UPDATE vehicles SET status = ? WHERE id = ?', [status, id]);
-        res.status(200).json({ message: 'Vehicle status updated successfully' });
+        res.status(200).json({ message: 'Vehicle status updated successfully', id: Number(id), status });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
