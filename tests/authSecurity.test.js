@@ -3,17 +3,20 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 
 jest.mock('../src/config/db', () => ({
-  query: jest.fn()
+  query: jest.fn(),
 }));
 
 const db = require('../src/config/db');
 const authController = require('../src/controllers/authController');
-const { verifyToken, verifyRole } = require('../src/middleware/authMiddleware');
+const {
+  verifyToken,
+  verifyRole,
+} = require('../src/middleware/authMiddleware');
 
 function mockResponse() {
   const res = {
     status: jest.fn(),
-    json: jest.fn()
+    json: jest.fn(),
   };
 
   res.status.mockReturnValue(res);
@@ -47,8 +50,8 @@ describe('Authentication security', () => {
         username: 'testuser',
         email: 'test@example.com',
         password: 'Password123!',
-        role: 'Admin'
-      }
+        role: 'Admin',
+      },
     };
     const res = mockResponse();
 
@@ -66,8 +69,8 @@ describe('Authentication security', () => {
     const req = {
       body: {
         username: 'testuser',
-        email: 'test@example.com'
-      }
+        email: 'test@example.com',
+      },
     };
     const res = mockResponse();
 
@@ -82,8 +85,8 @@ describe('Authentication security', () => {
       body: {
         username: 'testuser',
         email: 'not-an-email',
-        password: 'Password123!'
-      }
+        password: 'Password123!',
+      },
     };
     const res = mockResponse();
 
@@ -92,7 +95,7 @@ describe('Authentication security', () => {
     expect(res.status).toHaveBeenCalledWith(400);
     expect(res.json).toHaveBeenCalledWith({
       code: 400,
-      message: 'Invalid email format'
+      message: 'Invalid email format',
     });
     expect(db.query).not.toHaveBeenCalled();
   });
@@ -102,8 +105,8 @@ describe('Authentication security', () => {
       body: {
         username: 'testuser',
         email: 'test@example.com',
-        password: 'short'
-      }
+        password: 'short',
+      },
     };
     const res = mockResponse();
 
@@ -112,7 +115,7 @@ describe('Authentication security', () => {
     expect(res.status).toHaveBeenCalledWith(400);
     expect(res.json).toHaveBeenCalledWith({
       code: 400,
-      message: 'Password must be at least 8 characters long'
+      message: 'Password must be at least 8 characters long',
     });
     expect(db.query).not.toHaveBeenCalled();
   });
@@ -122,8 +125,8 @@ describe('Authentication security', () => {
 
     const req = {
       body: {
-        email: 'test@example.com'
-      }
+        email: 'test@example.com',
+      },
     };
     const res = mockResponse();
 
@@ -132,7 +135,7 @@ describe('Authentication security', () => {
     expect(res.status).toHaveBeenCalledWith(400);
     expect(res.json).toHaveBeenCalledWith({
       code: 400,
-      message: 'Email and password are required'
+      message: 'Email and password are required',
     });
     expect(db.query).not.toHaveBeenCalled();
   });
@@ -143,8 +146,8 @@ describe('Authentication security', () => {
     const req = {
       body: {
         email: 'test@example.com',
-        password: 'Password123!'
-      }
+        password: 'Password123!',
+      },
     };
     const res = mockResponse();
 
@@ -153,7 +156,7 @@ describe('Authentication security', () => {
     expect(res.status).toHaveBeenCalledWith(500);
     expect(res.json).toHaveBeenCalledWith({
       code: 500,
-      message: 'Server configuration error'
+      message: 'Server configuration error',
     });
     expect(db.query).not.toHaveBeenCalled();
   });
@@ -168,6 +171,10 @@ describe('Authentication security', () => {
     verifyToken(req, res, next);
 
     expect(res.status).toHaveBeenCalledWith(401);
+    expect(res.json).toHaveBeenCalledWith({
+      code: 401,
+      message: 'Access token missing',
+    });
     expect(next).not.toHaveBeenCalled();
   });
 
@@ -175,7 +182,7 @@ describe('Authentication security', () => {
     delete process.env.JWT_SECRET;
 
     const req = {
-      headers: { authorization: 'Bearer some-token' }
+      headers: { authorization: 'Bearer some-token' },
     };
     const res = mockResponse();
     const next = jest.fn();
@@ -185,7 +192,7 @@ describe('Authentication security', () => {
     expect(res.status).toHaveBeenCalledWith(500);
     expect(res.json).toHaveBeenCalledWith({
       code: 500,
-      message: 'Server configuration error'
+      message: 'Server configuration error',
     });
     expect(next).not.toHaveBeenCalled();
   });
@@ -194,17 +201,17 @@ describe('Authentication security', () => {
     process.env.JWT_SECRET = 'test-secret';
 
     const req = {
-      headers: { authorization: 'Bearer invalid-token' }
+      headers: { authorization: 'Bearer invalid-token' },
     };
     const res = mockResponse();
     const next = jest.fn();
 
     verifyToken(req, res, next);
 
-    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.status).toHaveBeenCalledWith(401);
     expect(res.json).toHaveBeenCalledWith({
-      code: 403,
-      message: 'Invalid token'
+      code: 401,
+      message: 'Invalid or expired token',
     });
     expect(next).not.toHaveBeenCalled();
   });
@@ -219,17 +226,17 @@ describe('Authentication security', () => {
     );
 
     const req = {
-      headers: { authorization: `Bearer ${token}` }
+      headers: { authorization: `Bearer ${token}` },
     };
     const res = mockResponse();
     const next = jest.fn();
 
     verifyToken(req, res, next);
 
-    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.status).toHaveBeenCalledWith(401);
     expect(res.json).toHaveBeenCalledWith({
-      code: 403,
-      message: 'Invalid token'
+      code: 401,
+      message: 'Invalid or expired token',
     });
     expect(next).not.toHaveBeenCalled();
   });
@@ -241,8 +248,9 @@ describe('Authentication security', () => {
       { userId: 1, role: 'Citizen' },
       process.env.JWT_SECRET
     );
+
     const req = {
-      headers: { authorization: `Bearer ${token}` }
+      headers: { authorization: `Bearer ${token}` },
     };
     const res = mockResponse();
     const next = jest.fn();
@@ -250,6 +258,7 @@ describe('Authentication security', () => {
     verifyToken(req, res, next);
 
     expect(req.user.userId).toBe(1);
+    expect(req.user.role).toBe('Citizen');
     expect(next).toHaveBeenCalledTimes(1);
     expect(res.status).not.toHaveBeenCalled();
   });
@@ -261,32 +270,68 @@ describe('Authentication security', () => {
       { userId: 1, role: 'Citizen' },
       process.env.JWT_SECRET
     );
+
     const req = {
-      headers: { authorization: `Bearer ${token}` }
+      headers: { authorization: `Bearer ${token}` },
     };
     const res = mockResponse();
     const next = jest.fn();
 
-    verifyRole(['Supervisor'])(req, res, next);
+    verifyToken(req, res, () => {
+      verifyRole(['Supervisor'])(req, res, next);
+    });
 
     expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.json).toHaveBeenCalledWith({
+      code: 403,
+      message: 'Insufficient permissions',
+    });
     expect(next).not.toHaveBeenCalled();
   });
 
-  test('role middleware allows Admin to access a Supervisor-only route', () => {
+  test('role middleware rejects Admin from a Supervisor-only route', () => {
     process.env.JWT_SECRET = 'test-secret';
 
     const token = jwt.sign(
       { userId: 1, role: 'Admin' },
       process.env.JWT_SECRET
     );
+
     const req = {
-      headers: { authorization: `Bearer ${token}` }
+      headers: { authorization: `Bearer ${token}` },
     };
     const res = mockResponse();
     const next = jest.fn();
 
-    verifyRole(['Supervisor'])(req, res, next);
+    verifyToken(req, res, () => {
+      verifyRole(['Supervisor'])(req, res, next);
+    });
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.json).toHaveBeenCalledWith({
+      code: 403,
+      message: 'Insufficient permissions',
+    });
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  test('role middleware allows an explicitly authorized Supervisor', () => {
+    process.env.JWT_SECRET = 'test-secret';
+
+    const token = jwt.sign(
+      { userId: 2, role: 'Supervisor' },
+      process.env.JWT_SECRET
+    );
+
+    const req = {
+      headers: { authorization: `Bearer ${token}` },
+    };
+    const res = mockResponse();
+    const next = jest.fn();
+
+    verifyToken(req, res, () => {
+      verifyRole(['Supervisor'])(req, res, next);
+    });
 
     expect(next).toHaveBeenCalledTimes(1);
     expect(res.status).not.toHaveBeenCalled();
@@ -303,15 +348,15 @@ describe('Authentication security', () => {
         username: 'testuser',
         email: 'test@example.com',
         password_hash: passwordHash,
-        role: 'Citizen'
-      }
+        role: 'Citizen',
+      },
     ]]);
 
     const req = {
       body: {
         email: 'test@example.com',
-        password: 'Password123!'
-      }
+        password: 'Password123!',
+      },
     };
     const res = mockResponse();
 
@@ -325,7 +370,7 @@ describe('Authentication security', () => {
     expect(responseBody.user).toEqual({
       id: 7,
       username: 'testuser',
-      role: 'Citizen'
+      role: 'Citizen',
     });
 
     const decoded = jwt.verify(

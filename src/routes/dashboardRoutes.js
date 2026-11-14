@@ -3,23 +3,29 @@ const express = require('express');
 const router = express.Router();
 
 const {
-    getDashboardSummary,
-    getDashboardCharts
+  getDashboardSummary,
+  getDashboardCharts,
 } = require('../controllers/dashboardController');
 
-const { verifyRole } = require('../middleware/authMiddleware');
+const {
+  verifyToken,
+  verifyRole,
+} = require('../middleware/authMiddleware');
 
-// Admin and Supervisor dashboard endpoints
+// Only Admin and Supervisor can access dashboard summaries.
 router.get(
-    '/summary',
-    verifyRole(['Admin', 'Supervisor']),
-    getDashboardSummary
+  '/summary',
+  verifyToken,
+  verifyRole(['Admin', 'Supervisor']),
+  getDashboardSummary
 );
 
+// Only Admin and Supervisor can access dashboard charts.
 router.get(
-    '/charts',
-    verifyRole(['Admin', 'Supervisor']),
-    getDashboardCharts
+  '/charts',
+  verifyToken,
+  verifyRole(['Admin', 'Supervisor']),
+  getDashboardCharts
 );
 
-exports.dashboardRoutes = router;
+module.exports = { dashboardRoutes: router };

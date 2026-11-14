@@ -66,15 +66,9 @@ describe('WMS Dashboard & Complaints API', () => {
             activeVehicles: 3
         });
 
-        // Verify dashboard queries both complaints and vehicles.
         expect(db.query).toHaveBeenCalledTimes(2);
-
-        expect(db.query.mock.calls[0][0])
-            .toContain('FROM complaints');
-
-        expect(db.query.mock.calls[1][0])
-            .toContain('FROM vehicles');
-
+        expect(db.query.mock.calls[0][0]).toContain('FROM complaints');
+        expect(db.query.mock.calls[1][0]).toContain('FROM vehicles');
         expect(db.query.mock.calls[1][0])
             .toContain("WHERE status = 'Active'");
     });
@@ -181,9 +175,14 @@ describe('WMS Dashboard & Complaints API', () => {
         expect(res.statusCode).toBe(401);
     });
 
-    test('GET complaints allows an authenticated Citizen', async () => {
+    test('GET complaints allows an authenticated Citizen and filters by owner', async () => {
         db.query.mockResolvedValueOnce([[
-            { id: 1, ward: 'Ward 12', status: 'Pending' }
+            {
+                id: 1,
+                user_id: 1,
+                ward: 'Ward 12',
+                status: 'Pending'
+            }
         ]]);
 
         const res = await request(app)
@@ -193,10 +192,14 @@ describe('WMS Dashboard & Complaints API', () => {
         expect(res.statusCode).toBe(200);
         expect(res.body.success).toBe(true);
         expect(res.body.count).toBe(1);
+
         expect(db.query).toHaveBeenCalledWith(
             expect.stringContaining('FROM complaints'),
-            ['Ward 12']
+            [1, 'Ward 12']
         );
+
+        expect(db.query.mock.calls[0][0])
+            .toContain('user_id = ?');
     });
 
     test('GET complaints returns 500 when the database query fails', async () => {
@@ -228,6 +231,7 @@ describe('WMS Dashboard & Complaints API', () => {
         db.query.mockResolvedValueOnce([[
             {
                 id: 7,
+                user_id: 1,
                 ward: 'Ward 12',
                 type: 'Overflow',
                 description: 'Bin is overflowing',
@@ -243,14 +247,15 @@ describe('WMS Dashboard & Complaints API', () => {
         expect(res.body.success).toBe(true);
         expect(res.body.data).toMatchObject({
             id: 7,
+            user_id: 1,
             ward: 'Ward 12',
             type: 'Overflow',
             status: 'Pending'
         });
 
         expect(db.query).toHaveBeenCalledWith(
-            'SELECT * FROM complaints WHERE id = ?',
-            ['7']
+            'SELECT * FROM complaints WHERE id = ? AND user_id = ?',
+            ['7', 1]
         );
     });
 
@@ -266,6 +271,23 @@ describe('WMS Dashboard & Complaints API', () => {
         expect(res.body.message).toBe('Complaint not found.');
     });
 
+    test('GET complaint by ID returns 404 for another Citizen’s complaint', async () => {
+        db.query.mockResolvedValueOnce([[]]);
+
+        const res = await request(app)
+            .get('/api/complaints/7')
+            .set('Authorization', `Bearer ${citizenToken}`);
+
+        expect(res.statusCode).toBe(404);
+        expect(res.body.success).toBe(false);
+        expect(res.body.message).toBe('Complaint not found.');
+
+        expect(db.query).toHaveBeenCalledWith(
+            'SELECT * FROM complaints WHERE id = ? AND user_id = ?',
+            ['7', 1]
+        );
+    });
+
     // Complaint creation
 
     test('POST complaints creates a complaint successfully', async () => {
@@ -274,6 +296,7 @@ describe('WMS Dashboard & Complaints API', () => {
             .mockResolvedValueOnce([[
                 {
                     id: 7,
+                    user_id: 1,
                     ward: 'Ward 12',
                     type: 'Overflow',
                     description: 'Bin is overflowing',
@@ -294,6 +317,7 @@ describe('WMS Dashboard & Complaints API', () => {
         expect(res.body.success).toBe(true);
         expect(res.body.data).toMatchObject({
             id: 7,
+            user_id: 1,
             ward: 'Ward 12',
             type: 'Overflow',
             description: 'Bin is overflowing',
@@ -305,6 +329,42 @@ describe('WMS Dashboard & Complaints API', () => {
             .toContain('INSERT INTO complaints');
 
         expect(db.query.mock.calls[0][1]).toEqual([
+            1,
+            'Ward 12',
+            'Overflow',
+            'Bin is overflowing',
+            'Pending'
+        ]);
+    });
+
+    test('POST complaints ignores a client-supplied user_id', async () => {
+        db.query
+            .mockResolvedValueOnce([{ insertId: 7 }])
+            .mockResolvedValueOnce([[
+                {
+                    id: 7,
+                    user_id: 1,
+                    ward: 'Ward 12',
+                    type: 'Overflow',
+                    description: 'Bin is overflowing',
+                    status: 'Pending'
+                }
+            ]]);
+
+        const res = await request(app)
+            .post('/api/complaints')
+            .set('Authorization', `Bearer ${citizenToken}`)
+            .send({
+                user_id: 2,
+                ward: 'Ward 12',
+                type: 'Overflow',
+                description: 'Bin is overflowing'
+            });
+
+        expect(res.statusCode).toBe(201);
+
+        expect(db.query.mock.calls[0][1]).toEqual([
+            1,
             'Ward 12',
             'Overflow',
             'Bin is overflowing',
@@ -390,6 +450,7 @@ describe('WMS Dashboard & Complaints API', () => {
             .mockResolvedValueOnce([[
                 {
                     id: 7,
+                    user_id: 1,
                     ward: 'Ward 12',
                     type: 'Overflow',
                     description: 'Bin is overflowing',
