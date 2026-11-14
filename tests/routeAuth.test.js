@@ -1,6 +1,6 @@
 // Uses the REAL authMiddleware (only the database is mocked) to prove the routes are protected.
 process.env.JWT_SECRET = 'test-secret';
-jest.mock('../src/config/db', () => ({ query: jest.fn() }));
+jest.mock('../src/config/db', () => require('./helpers/mockDb').makeDb());
 const jwt = require('jsonwebtoken');
 const request = require('supertest');
 const app = require('../src/app');
@@ -84,7 +84,7 @@ describe('payment viewing roles with real tokens', () => {
   it('Worker only sees their own payments', async () => {
     db.query.mockResolvedValueOnce([[]]);
     await request(app).get('/api/payments?worker_id=99').set('Authorization', token('Worker', 5));
-    expect(db.query.mock.calls[0][1]).toEqual([5]);
+    expect(db.query.mock.calls[0][1]).toEqual([5, 50, 0]);
   });
   it('Worker cannot read another worker’s payment', async () => {
     db.query.mockResolvedValueOnce([[{ payment_id: 1, worker_id: 9 }]]);
@@ -93,6 +93,6 @@ describe('payment viewing roles with real tokens', () => {
   it('Admin can filter by worker', async () => {
     db.query.mockResolvedValueOnce([[]]);
     expect((await request(app).get('/api/payments?worker_id=8').set('Authorization', token('Admin'))).status).toBe(200);
-    expect(db.query.mock.calls[0][1]).toEqual([8]);
+    expect(db.query.mock.calls[0][1]).toEqual([8, 50, 0]);
   });
 });
