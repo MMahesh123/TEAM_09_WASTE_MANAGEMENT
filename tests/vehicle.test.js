@@ -29,11 +29,12 @@ describe('Vehicle Module Full CRUD, Lifecycle & Auth Tests', () => {
         expect(res.statusCode).toBe(401);
     });
 
-    test('GET /api/vehicles - rejects invalid/malformed token (403)', async () => {
+    test('GET /api/vehicles - rejects invalid/malformed token (401)', async () => {
     const res = await request(app)
         .get('/api/vehicles')
         .set('Authorization', 'Bearer invalid.jwt.token');
-    expect(res.statusCode).toBe(403);
+
+    expect(res.statusCode).toBe(401);
 });
     test('POST /api/vehicles - rejects Worker and Citizen write operations (403)', async () => {
         const workerRes = await request(app)
