@@ -1,3 +1,4 @@
+
 const express = require('express');
 const router = express.Router();
 
@@ -6,16 +7,33 @@ const {
     getCollections,
     getCollectionById
 } = require('../controllers/collectionController');
+
 const { validateCollection } = require('../middleware/validateCollection');
-const { verifyRole } = require('../middleware/authMiddleware');
+const { verifyToken, verifyRole } = require('../middleware/authMiddleware');
 
-// verifyRole checks the JWT itself, and Admin passes every role check.
+// Supervisors, Workers and Admins can view collection records.
+router.get(
+    '/',
+    verifyToken,
+    verifyRole(['Supervisor', 'Worker', 'Admin']),
+    getCollections
+);
 
-// Supervisors see all collection records; Workers see only their own.
-router.get('/', verifyRole(['Supervisor', 'Worker']), getCollections);
-router.get('/:id', verifyRole(['Supervisor', 'Worker']), getCollectionById);
+router.get(
+    '/:id',
+    verifyToken,
+    verifyRole(['Supervisor', 'Worker', 'Admin']),
+    getCollectionById
+);
 
-// Collection staff record waste against their own assignment.
-router.post('/', verifyRole(['Worker']), validateCollection, createCollection);
+// Workers and Admins can record collections.
+// Assignment ownership is validated by the controller.
+router.post(
+    '/',
+    verifyToken,
+    verifyRole(['Worker', 'Admin']),
+    validateCollection,
+    createCollection
+);
 
 module.exports = router;

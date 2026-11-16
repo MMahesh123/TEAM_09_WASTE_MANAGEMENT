@@ -80,7 +80,7 @@ describe('Assignments API: authentication and roles', () => {
             .post('/api/assignments')
             .set('Authorization', `Bearer ${forged}`)
             .send(validBody);
-        expect(res.statusCode).toBe(403);
+        expect(res.statusCode).toBe(401);
         expect(db.getConnection).not.toHaveBeenCalled();
     });
 

@@ -1,14 +1,48 @@
-﻿const express = require('express');
+
+const express = require('express');
 const router = express.Router();
-const c = require('../controllers/paymentController');
+
+const paymentController = require('../controllers/paymentController');
 const { verifyToken, verifyRole } = require('../middleware/authMiddleware');
 
-router.post('/calculate', verifyToken, verifyRole(['Admin', 'Supervisor']), c.calculate);
-router.post('/simulate', verifyToken, verifyRole(['Admin', 'Supervisor']), c.simulate);
+// Calculate payments — Admin and Supervisor
+router.post(
+    '/calculate',
+    verifyToken,
+    verifyRole(['Admin', 'Supervisor']),
+    paymentController.calculate
+);
 
-router.get('/', verifyToken, verifyRole(['Admin', 'Supervisor', 'Worker']), c.listPayments);
-router.get('/:id', verifyToken, verifyRole(['Admin', 'Supervisor', 'Worker']), c.getPayment);
+// Simulate payments — Admin and Supervisor
+router.post(
+    '/simulate',
+    verifyToken,
+    verifyRole(['Admin', 'Supervisor']),
+    paymentController.simulate
+);
 
-router.patch('/:id/status', verifyToken, verifyRole(['Admin']), c.markPaid);
+// View all payments — Admin, Supervisor and Worker
+router.get(
+    '/',
+    verifyToken,
+    verifyRole(['Admin', 'Supervisor', 'Worker']),
+    paymentController.listPayments
+);
+
+// View a specific payment — Admin, Supervisor and Worker
+router.get(
+    '/:id',
+    verifyToken,
+    verifyRole(['Admin', 'Supervisor', 'Worker']),
+    paymentController.getPayment
+);
+
+// Mark payment as paid — Admin only
+router.patch(
+    '/:id/status',
+    verifyToken,
+    verifyRole(['Admin']),
+    paymentController.markPaid
+);
 
 module.exports = router;

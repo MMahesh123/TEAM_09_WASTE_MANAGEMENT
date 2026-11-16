@@ -1,3 +1,4 @@
+
 const express = require('express');
 const router = express.Router();
 
@@ -7,25 +8,44 @@ const {
     createAssignment,
     updateAssignmentStatus
 } = require('../controllers/assignmentController');
+
 const {
     validateCreateAssignment,
     validateAssignmentStatus
 } = require('../middleware/validateAssignment');
-const { verifyRole } = require('../middleware/authMiddleware');
 
-// verifyRole checks the JWT itself, and Admin passes every role check.
+const { verifyToken, verifyRole } = require('../middleware/authMiddleware');
 
-// Supervisors see every assignment; Workers see only their own shifts.
-router.get('/', verifyRole(['Supervisor', 'Worker']), getAssignments);
-router.get('/:id', verifyRole(['Supervisor', 'Worker']), getAssignmentById);
+// Supervisors, Workers and Admins can view assignments.
+router.get(
+    '/',
+    verifyToken,
+    verifyRole(['Supervisor', 'Worker', 'Admin']),
+    getAssignments
+);
 
-// Only Supervisors (and Admins) can schedule a vehicle and worker.
-router.post('/', verifyRole(['Supervisor']), validateCreateAssignment, createAssignment);
+router.get(
+    '/:id',
+    verifyToken,
+    verifyRole(['Supervisor', 'Worker', 'Admin']),
+    getAssignmentById
+);
 
-// Supervisors manage any assignment; Workers can start or complete their own.
+// Only Supervisors and Admins can create assignments.
+router.post(
+    '/',
+    verifyToken,
+    verifyRole(['Supervisor', 'Admin']),
+    validateCreateAssignment,
+    createAssignment
+);
+
+// Supervisors, Workers and Admins can update assignment status.
+// Workers can only update their own assignments (enforced by controller).
 router.patch(
     '/:id/status',
-    verifyRole(['Supervisor', 'Worker']),
+    verifyToken,
+    verifyRole(['Supervisor', 'Worker', 'Admin']),
     validateAssignmentStatus,
     updateAssignmentStatus
 );
