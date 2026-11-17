@@ -4,14 +4,23 @@ const isValidId = (id) => /^\d+$/.test(String(id)) && Number(id) > 0;
 
 // GET /api/wards
 exports.getAllWards = async (req, res, next) => {
+    const zoneFilter = req.query && req.query.zone ? String(req.query.zone).trim() : null;
+
     try {
+        if (zoneFilter) {
+            const [rows] = await db.query(
+                'SELECT * FROM wards WHERE zone = ? ORDER BY id ASC',
+                [zoneFilter]
+            );
+            return res.status(200).json(rows);
+        }
+
         const [rows] = await db.query('SELECT * FROM wards ORDER BY id ASC');
         res.status(200).json(rows);
     } catch (error) {
         next(error);
     }
 };
-
 // GET /api/wards/:id
 exports.getWardById = async (req, res, next) => {
     const { id } = req.params;
