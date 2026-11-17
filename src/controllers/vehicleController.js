@@ -12,7 +12,23 @@ const isValidId = (id) => /^\d+$/.test(String(id)) && Number(id) > 0;
 
 // GET /api/vehicles
 exports.getAllVehicles = async (req, res, next) => {
+    const statusFilter = req.query && req.query.status ? normalizeStatus(req.query.status) : null;
+
+    if (statusFilter && !ALLOWED_STATUSES.includes(statusFilter)) {
+        return res.status(400).json({
+            error: `Invalid status filter. Allowed values: ${ALLOWED_STATUSES.join(', ')}`
+        });
+    }
+
     try {
+        if (statusFilter) {
+            const [rows] = await db.query(
+                'SELECT * FROM vehicles WHERE status = ? ORDER BY id ASC',
+                [statusFilter]
+            );
+            return res.status(200).json(rows);
+        }
+
         const [rows] = await db.query('SELECT * FROM vehicles ORDER BY id ASC');
         res.status(200).json(rows);
     } catch (error) {
