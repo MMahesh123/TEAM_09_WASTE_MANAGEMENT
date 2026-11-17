@@ -232,4 +232,12 @@ describe('Vehicle Module Full CRUD, Lifecycle & Auth Tests', () => {
             .set('Authorization', `Bearer ${adminToken}`);
         expect(errRes.statusCode).toBe(500);
     });
+    test('POST /api/vehicles - rejects registration_number exceeding 30 characters (400)', async () => {
+        const res = await request(app)
+            .post('/api/vehicles')
+            .set('Authorization', `Bearer ${adminToken}`)
+            .send({ registration_number: 'KA-01-VERY-LONG-REGISTRATION-12345', capacity_tons: 5 });
+
+        expect(res.statusCode).toBe(400);
+    });
 });
