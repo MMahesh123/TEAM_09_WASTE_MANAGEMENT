@@ -21,14 +21,15 @@ describe('Ward Module API & Authorization Tests', () => {
         jest.clearAllMocks();
     });
 
-  test('GET /api/wards - rejects missing token (401) and invalid token (403)', async () => {
+  test('GET /api/wards - rejects missing token (401) and invalid token (401)', async () => {
     const missingRes = await request(app).get('/api/wards');
     expect(missingRes.statusCode).toBe(401);
 
     const invalidRes = await request(app)
         .get('/api/wards')
         .set('Authorization', 'Bearer bad.token');
-    expect(invalidRes.statusCode).toBe(403);
+
+    expect(invalidRes.statusCode).toBe(401);
 });
 
     test('GET /api/wards - returns wards for authenticated user (200)', async () => {
