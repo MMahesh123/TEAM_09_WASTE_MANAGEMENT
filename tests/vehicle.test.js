@@ -271,4 +271,13 @@ describe('Vehicle Module Full CRUD, Lifecycle & Auth Tests', () => {
             .send({ registration_number: 'KA-01-AB-1234', capacity_tons: 4 });
         expect(dupReg.statusCode).toBe(409);
     });
+    test('PUT /api/vehicles/:id/status - blocks assigning an Inactive vehicle (409)', async () => {
+        db.query.mockResolvedValueOnce([[{ id: 4, status: 'Inactive' }]]);
+        const res = await request(app)
+            .put('/api/vehicles/4/status')
+            .set('Authorization', `Bearer ${supervisorToken}`)
+            .send({ status: 'Assigned' });
+
+        expect(res.statusCode).toBe(409);
+    });
 });
