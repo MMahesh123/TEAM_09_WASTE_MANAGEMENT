@@ -240,4 +240,19 @@ describe('Vehicle Module Full CRUD, Lifecycle & Auth Tests', () => {
 
         expect(res.statusCode).toBe(400);
     });
+    test('GET /api/vehicles?status= - filters by valid status (200) and rejects invalid status (400)', async () => {
+        const badFilter = await request(app)
+            .get('/api/vehicles?status=UnknownStatus')
+            .set('Authorization', `Bearer ${workerToken}`);
+        expect(badFilter.statusCode).toBe(400);
+
+        db.query.mockResolvedValueOnce([[
+            { id: 1, registration_number: 'KA-01-AB-1234', capacity_tons: 5, status: 'Available' }
+        ]]);
+        const validFilter = await request(app)
+            .get('/api/vehicles?status=Available')
+            .set('Authorization', `Bearer ${workerToken}`);
+        expect(validFilter.statusCode).toBe(200);
+        expect(validFilter.body).toHaveLength(1);
+    });
 });
