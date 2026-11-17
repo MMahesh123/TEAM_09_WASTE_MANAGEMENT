@@ -106,4 +106,20 @@ describe('Ward Module API & Authorization Tests', () => {
 
         expect(res.statusCode).toBe(400);
     });
+    test('GET /api/wards?zone= and GET /api/wards/:id - filters by zone (200) and handles missing ward (404)', async () => {
+        db.query.mockResolvedValueOnce([[
+            { id: 1, ward_number: 'W-101', ward_name: 'Indiranagar', zone: 'East' }
+        ]]);
+        const zoneRes = await request(app)
+            .get('/api/wards?zone=East')
+            .set('Authorization', `Bearer ${workerToken}`);
+        expect(zoneRes.statusCode).toBe(200);
+        expect(zoneRes.body[0].zone).toBe('East');
+
+        db.query.mockResolvedValueOnce([[]]);
+        const missingRes = await request(app)
+            .get('/api/wards/999')
+            .set('Authorization', `Bearer ${workerToken}`);
+        expect(missingRes.statusCode).toBe(404);
+    });
 });
