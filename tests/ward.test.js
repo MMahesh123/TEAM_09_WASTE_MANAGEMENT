@@ -98,4 +98,12 @@ describe('Ward Module API & Authorization Tests', () => {
 
         expect(res.statusCode).toBe(500);
     });
+    test('POST /api/wards - rejects ward_number exceeding 20 characters (400)', async () => {
+        const res = await request(app)
+            .post('/api/wards')
+            .set('Authorization', `Bearer ${adminToken}`)
+            .send({ ward_number: 'WARD-NUMBER-TOO-LONG-12345', ward_name: 'Central', zone: 'Central' });
+
+        expect(res.statusCode).toBe(400);
+    });
 });
