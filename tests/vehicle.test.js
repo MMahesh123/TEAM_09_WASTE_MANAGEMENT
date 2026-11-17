@@ -255,4 +255,20 @@ describe('Vehicle Module Full CRUD, Lifecycle & Auth Tests', () => {
         expect(validFilter.statusCode).toBe(200);
         expect(validFilter.body).toHaveLength(1);
     });
+    test('PUT /api/vehicles/:id - rejects invalid ID (400) and duplicate registration_number (409)', async () => {
+        const badId = await request(app)
+            .put('/api/vehicles/not-a-number')
+            .set('Authorization', `Bearer ${supervisorToken}`)
+            .send({ registration_number: 'KA-01-AB-1234', capacity_tons: 5 });
+        expect(badId.statusCode).toBe(400);
+
+        db.query
+            .mockResolvedValueOnce([[{ id: 2, registration_number: 'KA-02-CD-5678', capacity_tons: 4, status: 'Available' }]])
+            .mockResolvedValueOnce([[{ id: 1 }]]);
+        const dupReg = await request(app)
+            .put('/api/vehicles/2')
+            .set('Authorization', `Bearer ${supervisorToken}`)
+            .send({ registration_number: 'KA-01-AB-1234', capacity_tons: 4 });
+        expect(dupReg.statusCode).toBe(409);
+    });
 });
