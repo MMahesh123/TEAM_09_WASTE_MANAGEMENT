@@ -232,4 +232,52 @@ describe('Vehicle Module Full CRUD, Lifecycle & Auth Tests', () => {
             .set('Authorization', `Bearer ${adminToken}`);
         expect(errRes.statusCode).toBe(500);
     });
+    test('POST /api/vehicles - rejects registration_number exceeding 30 characters (400)', async () => {
+        const res = await request(app)
+            .post('/api/vehicles')
+            .set('Authorization', `Bearer ${adminToken}`)
+            .send({ registration_number: 'KA-01-VERY-LONG-REGISTRATION-12345', capacity_tons: 5 });
+
+        expect(res.statusCode).toBe(400);
+    });
+    test('GET /api/vehicles?status= - filters by valid status (200) and rejects invalid status (400)', async () => {
+        const badFilter = await request(app)
+            .get('/api/vehicles?status=UnknownStatus')
+            .set('Authorization', `Bearer ${workerToken}`);
+        expect(badFilter.statusCode).toBe(400);
+
+        db.query.mockResolvedValueOnce([[
+            { id: 1, registration_number: 'KA-01-AB-1234', capacity_tons: 5, status: 'Available' }
+        ]]);
+        const validFilter = await request(app)
+            .get('/api/vehicles?status=Available')
+            .set('Authorization', `Bearer ${workerToken}`);
+        expect(validFilter.statusCode).toBe(200);
+        expect(validFilter.body).toHaveLength(1);
+    });
+    test('PUT /api/vehicles/:id - rejects invalid ID (400) and duplicate registration_number (409)', async () => {
+        const badId = await request(app)
+            .put('/api/vehicles/not-a-number')
+            .set('Authorization', `Bearer ${supervisorToken}`)
+            .send({ registration_number: 'KA-01-AB-1234', capacity_tons: 5 });
+        expect(badId.statusCode).toBe(400);
+
+        db.query
+            .mockResolvedValueOnce([[{ id: 2, registration_number: 'KA-02-CD-5678', capacity_tons: 4, status: 'Available' }]])
+            .mockResolvedValueOnce([[{ id: 1 }]]);
+        const dupReg = await request(app)
+            .put('/api/vehicles/2')
+            .set('Authorization', `Bearer ${supervisorToken}`)
+            .send({ registration_number: 'KA-01-AB-1234', capacity_tons: 4 });
+        expect(dupReg.statusCode).toBe(409);
+    });
+    test('PUT /api/vehicles/:id/status - blocks assigning an Inactive vehicle (409)', async () => {
+        db.query.mockResolvedValueOnce([[{ id: 4, status: 'Inactive' }]]);
+        const res = await request(app)
+            .put('/api/vehicles/4/status')
+            .set('Authorization', `Bearer ${supervisorToken}`)
+            .send({ status: 'Assigned' });
+
+        expect(res.statusCode).toBe(409);
+    });
 });

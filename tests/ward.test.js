@@ -98,4 +98,28 @@ describe('Ward Module API & Authorization Tests', () => {
 
         expect(res.statusCode).toBe(500);
     });
+    test('POST /api/wards - rejects ward_number exceeding 20 characters (400)', async () => {
+        const res = await request(app)
+            .post('/api/wards')
+            .set('Authorization', `Bearer ${adminToken}`)
+            .send({ ward_number: 'WARD-NUMBER-TOO-LONG-12345', ward_name: 'Central', zone: 'Central' });
+
+        expect(res.statusCode).toBe(400);
+    });
+    test('GET /api/wards?zone= and GET /api/wards/:id - filters by zone (200) and handles missing ward (404)', async () => {
+        db.query.mockResolvedValueOnce([[
+            { id: 1, ward_number: 'W-101', ward_name: 'Indiranagar', zone: 'East' }
+        ]]);
+        const zoneRes = await request(app)
+            .get('/api/wards?zone=East')
+            .set('Authorization', `Bearer ${workerToken}`);
+        expect(zoneRes.statusCode).toBe(200);
+        expect(zoneRes.body[0].zone).toBe('East');
+
+        db.query.mockResolvedValueOnce([[]]);
+        const missingRes = await request(app)
+            .get('/api/wards/999')
+            .set('Authorization', `Bearer ${workerToken}`);
+        expect(missingRes.statusCode).toBe(404);
+    });
 });

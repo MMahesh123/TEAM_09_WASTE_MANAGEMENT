@@ -4,14 +4,23 @@ const isValidId = (id) => /^\d+$/.test(String(id)) && Number(id) > 0;
 
 // GET /api/wards
 exports.getAllWards = async (req, res, next) => {
+    const zoneFilter = req.query && req.query.zone ? String(req.query.zone).trim() : null;
+
     try {
+        if (zoneFilter) {
+            const [rows] = await db.query(
+                'SELECT * FROM wards WHERE zone = ? ORDER BY id ASC',
+                [zoneFilter]
+            );
+            return res.status(200).json(rows);
+        }
+
         const [rows] = await db.query('SELECT * FROM wards ORDER BY id ASC');
         res.status(200).json(rows);
     } catch (error) {
         next(error);
     }
 };
-
 // GET /api/wards/:id
 exports.getWardById = async (req, res, next) => {
     const { id } = req.params;
@@ -45,6 +54,12 @@ exports.createWard = async (req, res, next) => {
     const cleanNumber = String(ward_number).trim().toUpperCase();
     const cleanName = String(ward_name).trim();
     const cleanZone = String(zone).trim();
+
+    if (cleanNumber.length > 20 || cleanName.length > 100 || cleanZone.length > 100) {
+        return res.status(400).json({
+            error: 'ward_number (max 20), ward_name (max 100), and zone (max 100) exceed allowed lengths.'
+        });
+    }
 
     try {
         const [existing] = await db.query(
@@ -98,7 +113,11 @@ exports.updateWard = async (req, res, next) => {
     const cleanNumber = String(ward_number).trim().toUpperCase();
     const cleanName = String(ward_name).trim();
     const cleanZone = String(zone).trim();
-
+    if (cleanNumber.length > 20 || cleanName.length > 100 || cleanZone.length > 100) {
+    return res.status(400).json({
+        error: 'ward_number (max 20), ward_name (max 100), and zone (max 100) exceed allowed lengths.'
+    });
+}
     try {
         const [rows] = await db.query('SELECT id FROM wards WHERE id = ?', [id]);
         if (rows.length === 0) {
