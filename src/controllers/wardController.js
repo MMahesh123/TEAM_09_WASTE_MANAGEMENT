@@ -98,7 +98,11 @@ exports.updateWard = async (req, res, next) => {
     const cleanNumber = String(ward_number).trim().toUpperCase();
     const cleanName = String(ward_name).trim();
     const cleanZone = String(zone).trim();
-
+    if (cleanNumber.length > 20 || cleanName.length > 100 || cleanZone.length > 100) {
+    return res.status(400).json({
+        error: 'ward_number (max 20), ward_name (max 100), and zone (max 100) exceed allowed lengths.'
+    });
+}
     try {
         const [rows] = await db.query('SELECT id FROM wards WHERE id = ?', [id]);
         if (rows.length === 0) {
