@@ -59,7 +59,9 @@ exports.createVehicle = async (req, res, next) => {
     }
 
     const cleanReg = String(registration_number).trim().toUpperCase();
-
+     if (cleanReg.length > 30) {
+    return res.status(400).json({ error: 'registration_number must not exceed 30 characters.' });
+}
     try {
         const [existing] = await db.query(
             'SELECT id FROM vehicles WHERE registration_number = ?',
