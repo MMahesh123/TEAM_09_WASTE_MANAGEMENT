@@ -9,8 +9,9 @@
 --
 -- Payment period: an inclusive range of calendar dates [period_start, period_end] compared with
 -- collection_logs.collected_at (a DATE). A payment covers every UNPAID collection log of the worker
--- in that range. Nothing here moves real money: status 'Simulated' is a calculation record and
--- 'Paid' is a manual "settled outside this system" marker.
+-- in that range. Nothing here moves real money: status 'Simulated' is a calculation record,
+-- 'Paid' is a manual "settled outside this system" marker, and 'Cancelled' voids a Simulated payment
+-- (its collection logs are released so they can be paid again).
 USE TEAM_09_WASTE_MANAGEMENT;
 
 CREATE TABLE IF NOT EXISTS payments (
@@ -21,10 +22,11 @@ CREATE TABLE IF NOT EXISTS payments (
   total_tons    DECIMAL(10,2) NOT NULL,
   rate_per_ton  DECIMAL(10,2) NOT NULL,
   amount        DECIMAL(12,2) NOT NULL,
-  status        ENUM('Simulated','Paid') NOT NULL DEFAULT 'Simulated',
+  status        ENUM('Simulated','Paid','Cancelled') NOT NULL DEFAULT 'Simulated',
   reference_no  VARCHAR(40) NOT NULL,
   created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   paid_at       TIMESTAMP NULL DEFAULT NULL,
+  cancelled_at  TIMESTAMP NULL DEFAULT NULL,
   CONSTRAINT uq_payments_reference UNIQUE (reference_no),
   CONSTRAINT chk_payment_period    CHECK (period_start <= period_end),
   CONSTRAINT chk_payment_amounts   CHECK (total_tons > 0 AND rate_per_ton > 0 AND amount >= 0),
