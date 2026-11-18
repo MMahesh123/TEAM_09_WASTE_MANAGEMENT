@@ -1,3 +1,4 @@
+
 // WMS-F-006: Vehicle & Staff Shift Assignment (TC-ASG-01 plus negative cases)
 // Uses real JWTs through the real auth middleware; only the database is mocked.
 const request = require('supertest');
@@ -56,9 +57,10 @@ function mockSuccessfulCreate() {
         .mockResolvedValueOnce([[{ user_id: 3, role: 'Worker' }]]) // worker
         .mockResolvedValueOnce([[{ id: 2 }]]) // ward
         .mockResolvedValueOnce([[]]) // no conflicts
-        .mockResolvedValueOnce([{ insertId: 10 }]) // insert
+        .mockResolvedValueOnce([{ insertId: 10 }]) // assignment INSERT
         .mockResolvedValueOnce([{ affectedRows: 1 }]) // vehicle -> Assigned
-        .mockResolvedValueOnce([[assignmentRow]]); // select created row
+        .mockResolvedValueOnce([[assignmentRow]]) // select created row
+        .mockResolvedValueOnce([{ insertId: 100 }]); // ASSIGNMENT_CREATED audit INSERT
 }
 
 const sqlCalls = () => conn.query.mock.calls.map((c) => c[0]);
@@ -113,16 +115,26 @@ describe('POST /api/assignments', () => {
 
         expect(res.statusCode).toBe(201);
         expect(res.body.success).toBe(true);
-        expect(res.body.data).toMatchObject({ id: 10, status: 'Scheduled', shift: 'Morning' });
+        expect(res.body.data).toMatchObject({
+            id: 10,
+            status: 'Scheduled',
+            shift: 'Morning'
+        });
 
         const insert = conn.query.mock.calls[4];
         expect(insert[0]).toContain('INSERT INTO assignments');
-        expect(insert[1]).toEqual([1, 3, 2, '2026-11-12', 'Morning', 2]);
+        expect(insert[1]).toEqual([1, 3, 2, '2026-11-12', 'Morning', 2, null]);
 
         expect(conn.query.mock.calls[5]).toEqual([
             "UPDATE vehicles SET status = 'Assigned' WHERE id = ?",
             [1]
         ]);
+
+        // Confirm assignment creation audit is recorded.
+        expect(sqlCalls().some(sql =>
+            sql.includes('INSERT INTO audit_logs')
+        )).toBe(true);
+
         expect(conn.commit).toHaveBeenCalledTimes(1);
         expect(conn.rollback).not.toHaveBeenCalled();
         expect(conn.release).toHaveBeenCalledTimes(1);
@@ -343,7 +355,13 @@ describe('GET /api/assignments', () => {
             .set('Authorization', `Bearer ${supervisorToken}`);
 
         expect(res.statusCode).toBe(200);
-        expect(db.query.mock.calls[0][1]).toEqual(['2026-11-12', 'Morning', 'Scheduled', 2, 3]);
+        expect(db.query.mock.calls[0][1]).toEqual([
+            '2026-11-12',
+            'Morning',
+            'Scheduled',
+            2,
+            3
+        ]);
     });
 
     test('a Supervisor without filters lists everything', async () => {
@@ -416,12 +434,18 @@ describe('GET /api/assignments/:id', () => {
 });
 
 describe('PATCH /api/assignments/:id/status', () => {
-    const current = (status, workerId = 3) => [[{ id: 10, vehicle_id: 1, worker_id: workerId, status }]];
+    const current = (status, workerId = 3) => [[{
+        id: 10,
+        vehicle_id: 1,
+        worker_id: workerId,
+        status
+    }]];
 
     test('a Worker can start their own scheduled shift', async () => {
         conn.query
             .mockResolvedValueOnce(current('Scheduled'))
             .mockResolvedValueOnce([{ affectedRows: 1 }])
+            .mockResolvedValueOnce([{ insertId: 1 }]) // Audit INSERT
             .mockResolvedValueOnce([[{ ...assignmentRow, status: 'In-Progress' }]]);
 
         const res = await request(app)
@@ -438,8 +462,9 @@ describe('PATCH /api/assignments/:id/status', () => {
     test('completing an assignment releases the vehicle if it has no other live shifts', async () => {
         conn.query
             .mockResolvedValueOnce(current('In-Progress'))
-            .mockResolvedValueOnce([{ affectedRows: 1 }])
-            .mockResolvedValueOnce([{ affectedRows: 1 }])
+            .mockResolvedValueOnce([{ affectedRows: 1 }]) // Assignment UPDATE
+            .mockResolvedValueOnce([{ affectedRows: 1 }]) // Vehicle release
+            .mockResolvedValueOnce([{ insertId: 2 }]) // Audit INSERT
             .mockResolvedValueOnce([[{ ...assignmentRow, status: 'Completed' }]]);
 
         const res = await request(app)
@@ -457,8 +482,9 @@ describe('PATCH /api/assignments/:id/status', () => {
     test('a Supervisor can cancel a scheduled assignment', async () => {
         conn.query
             .mockResolvedValueOnce(current('Scheduled'))
-            .mockResolvedValueOnce([{ affectedRows: 1 }])
-            .mockResolvedValueOnce([{ affectedRows: 1 }])
+            .mockResolvedValueOnce([{ affectedRows: 1 }]) // Assignment UPDATE
+            .mockResolvedValueOnce([{ affectedRows: 1 }]) // Vehicle release
+            .mockResolvedValueOnce([{ insertId: 3 }]) // Audit INSERT
             .mockResolvedValueOnce([[{ ...assignmentRow, status: 'Cancelled' }]]);
 
         const res = await request(app)

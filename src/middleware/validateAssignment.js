@@ -1,3 +1,4 @@
+
 const { parsePositiveInt, isValidISODate } = require('../utils/inputValidators');
 
 const SHIFTS = ['Morning', 'Afternoon', 'Night'];
@@ -9,20 +10,45 @@ const badRequest = (res, message, extra = {}) =>
 // POST /api/assignments
 exports.validateCreateAssignment = (req, res, next) => {
     const body = req.body;
+
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
         return badRequest(res, 'Request body must be a JSON object.');
     }
 
     const errors = [];
+
     const vehicleId = parsePositiveInt(body.vehicle_id);
     const workerId = parsePositiveInt(body.worker_id);
     const wardId = parsePositiveInt(body.ward_id);
 
+    // complaint_id is optional, but must be valid when supplied.
+    const complaintId =
+        body.complaint_id === undefined ||
+        body.complaint_id === null ||
+        body.complaint_id === ''
+            ? null
+            : parsePositiveInt(body.complaint_id);
+
     if (!vehicleId) errors.push('vehicle_id must be a positive integer.');
     if (!workerId) errors.push('worker_id must be a positive integer.');
     if (!wardId) errors.push('ward_id must be a positive integer.');
-    if (!isValidISODate(body.shift_date)) errors.push('shift_date must be a valid date in YYYY-MM-DD format.');
-    if (!SHIFTS.includes(body.shift)) errors.push(`shift must be one of: ${SHIFTS.join(', ')}.`);
+
+    if (
+        body.complaint_id !== undefined &&
+        body.complaint_id !== null &&
+        body.complaint_id !== '' &&
+        !complaintId
+    ) {
+        errors.push('complaint_id must be a positive integer.');
+    }
+
+    if (!isValidISODate(body.shift_date)) {
+        errors.push('shift_date must be a valid date in YYYY-MM-DD format.');
+    }
+
+    if (!SHIFTS.includes(body.shift)) {
+        errors.push(`shift must be one of: ${SHIFTS.join(', ')}.`);
+    }
 
     if (errors.length > 0) {
         return badRequest(res, 'Invalid assignment data.', { errors });
@@ -32,18 +58,24 @@ exports.validateCreateAssignment = (req, res, next) => {
         vehicleId,
         workerId,
         wardId,
+        complaintId,
         shiftDate: body.shift_date,
         shift: body.shift
     };
+
     return next();
 };
 
 // PATCH /api/assignments/:id/status
 exports.validateAssignmentStatus = (req, res, next) => {
     const status = req.body && req.body.status;
+
     if (!ASSIGNMENT_STATUSES.includes(status)) {
-        return badRequest(res, 'A valid status is required.', { validStatuses: ASSIGNMENT_STATUSES });
+        return badRequest(res, 'A valid status is required.', {
+            validStatuses: ASSIGNMENT_STATUSES
+        });
     }
+
     return next();
 };
 

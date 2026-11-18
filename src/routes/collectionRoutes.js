@@ -5,10 +5,15 @@ const router = express.Router();
 const {
     createCollection,
     getCollections,
-    getCollectionById
+    getCollectionById,
+    verifyCollection
 } = require('../controllers/collectionController');
 
-const { validateCollection } = require('../middleware/validateCollection');
+const {
+    validateCollection,
+    validateCollectionVerification
+} = require('../middleware/validateCollection');
+
 const { verifyToken, verifyRole } = require('../middleware/authMiddleware');
 
 // Supervisors, Workers and Admins can view collection records.
@@ -34,6 +39,15 @@ router.post(
     verifyRole(['Worker', 'Admin']),
     validateCollection,
     createCollection
+);
+
+// Only Supervisors and Admins can verify collection records.
+router.patch(
+    '/:id/verify',
+    verifyToken,
+    verifyRole(['Supervisor', 'Admin']),
+    validateCollectionVerification,
+    verifyCollection
 );
 
 module.exports = router;

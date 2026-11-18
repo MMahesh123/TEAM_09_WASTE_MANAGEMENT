@@ -5,11 +5,20 @@ const jwt = require('jsonwebtoken');
 process.env.JWT_SECRET = 'test-secret-for-jest-only';
 
 jest.mock('../src/config/db', () => ({
-    query: jest.fn()
+    query: jest.fn(),
+    getConnection: jest.fn()
 }));
 
 const db = require('../src/config/db');
 const app = require('../src/app');
+
+const mockConnection = {
+    beginTransaction: jest.fn(),
+    query: jest.fn(),
+    commit: jest.fn(),
+    rollback: jest.fn(),
+    release: jest.fn()
+};
 
 const citizenToken = jwt.sign(
     { userId: 1, role: 'Citizen', email: 'citizen@example.com' },
@@ -34,6 +43,15 @@ const adminToken = jwt.sign(
 describe('WMS Dashboard & Complaints API', () => {
     beforeEach(() => {
         jest.clearAllMocks();
+
+        db.getConnection.mockResolvedValue(mockConnection);
+
+        mockConnection.beginTransaction.mockResolvedValue(undefined);
+        mockConnection.commit.mockResolvedValue(undefined);
+        mockConnection.rollback.mockResolvedValue(undefined);
+
+        mockConnection.query.mockReset();
+        mockConnection.release.mockReset();
     });
 
     // Dashboard access control and summary
@@ -254,9 +272,9 @@ describe('WMS Dashboard & Complaints API', () => {
         });
 
         expect(db.query).toHaveBeenCalledWith(
-            'SELECT * FROM complaints WHERE id = ? AND user_id = ?',
-            ['7', 1]
-        );
+    expect.stringContaining('WHERE c.id = ?'),
+    ['7', 1]
+);
     });
 
     test('GET complaint by ID returns 404 when the complaint does not exist', async () => {
@@ -271,7 +289,7 @@ describe('WMS Dashboard & Complaints API', () => {
         expect(res.body.message).toBe('Complaint not found.');
     });
 
-    test('GET complaint by ID returns 404 for another Citizen’s complaint', async () => {
+    test('GET complaint by ID returns 404 for another Citizen complaint', async () => {
         db.query.mockResolvedValueOnce([[]]);
 
         const res = await request(app)
@@ -283,9 +301,9 @@ describe('WMS Dashboard & Complaints API', () => {
         expect(res.body.message).toBe('Complaint not found.');
 
         expect(db.query).toHaveBeenCalledWith(
-            'SELECT * FROM complaints WHERE id = ? AND user_id = ?',
-            ['7', 1]
-        );
+    expect.stringContaining('WHERE c.id = ?'),
+    ['7', 1]
+);
     });
 
     // Complaint creation
@@ -444,9 +462,20 @@ describe('WMS Dashboard & Complaints API', () => {
 
     // Complaint status updates
 
-    test('PATCH status updates a complaint successfully for a Supervisor', async () => {
-        db.query
+    test('PATCH status updates a complaint successfully for a Supervisor and audits it', async () => {
+        mockConnection.query
+            .mockResolvedValueOnce([[
+                {
+                    id: 7,
+                    user_id: 1,
+                    ward: 'Ward 12',
+                    type: 'Overflow',
+                    description: 'Bin is overflowing',
+                    status: 'Pending'
+                }
+            ]])
             .mockResolvedValueOnce([{ affectedRows: 1 }])
+            .mockResolvedValueOnce([{ insertId: 1 }])
             .mockResolvedValueOnce([[
                 {
                     id: 7,
@@ -470,21 +499,27 @@ describe('WMS Dashboard & Complaints API', () => {
             status: 'Resolved'
         });
 
-        expect(db.query).toHaveBeenNthCalledWith(
-            1,
-            'UPDATE complaints SET status = ? WHERE id = ?',
-            ['Resolved', '7']
-        );
+        expect(mockConnection.beginTransaction).toHaveBeenCalledTimes(1);
+        expect(mockConnection.commit).toHaveBeenCalledTimes(1);
+        expect(mockConnection.rollback).not.toHaveBeenCalled();
 
-        expect(db.query).toHaveBeenNthCalledWith(
-            2,
-            'SELECT * FROM complaints WHERE id = ?',
-            ['7']
-        );
+        expect(mockConnection.query.mock.calls[0][0])
+            .toContain('FOR UPDATE');
+
+        expect(mockConnection.query.mock.calls[1][0])
+            .toContain('UPDATE complaints SET status');
+
+        expect(mockConnection.query.mock.calls[2][0])
+            .toContain('INSERT INTO audit_logs');
+
+        expect(mockConnection.query.mock.calls[2][1])
+            .toContain('COMPLAINT_STATUS_UPDATED');
+
+        expect(mockConnection.release).toHaveBeenCalledTimes(1);
     });
 
     test('PATCH status returns 404 when the complaint does not exist', async () => {
-        db.query.mockResolvedValueOnce([{ affectedRows: 0 }]);
+        mockConnection.query.mockResolvedValueOnce([[]]);
 
         const res = await request(app)
             .patch('/api/complaints/999/status')
@@ -494,13 +529,24 @@ describe('WMS Dashboard & Complaints API', () => {
         expect(res.statusCode).toBe(404);
         expect(res.body.success).toBe(false);
         expect(res.body.message).toBe('Complaint not found.');
-        expect(db.query).toHaveBeenCalledTimes(1);
+
+        expect(mockConnection.commit).not.toHaveBeenCalled();
+        expect(mockConnection.rollback).toHaveBeenCalledTimes(1);
+        expect(mockConnection.release).toHaveBeenCalledTimes(1);
     });
 
     test('PATCH status returns 500 when the database update fails', async () => {
-        db.query.mockRejectedValueOnce(
-            new Error('Database unavailable')
-        );
+        mockConnection.query
+            .mockResolvedValueOnce([[
+                {
+                    id: 7,
+                    user_id: 1,
+                    status: 'Pending'
+                }
+            ]])
+            .mockRejectedValueOnce(
+                new Error('Database unavailable')
+            );
 
         const res = await request(app)
             .patch('/api/complaints/7/status')
@@ -509,7 +555,33 @@ describe('WMS Dashboard & Complaints API', () => {
 
         expect(res.statusCode).toBe(500);
         expect(res.body.success).toBe(false);
-        expect(db.query).toHaveBeenCalledTimes(1);
+        expect(mockConnection.rollback).toHaveBeenCalledTimes(1);
+        expect(mockConnection.commit).not.toHaveBeenCalled();
+    });
+
+    test('PATCH status rolls back when audit insertion fails', async () => {
+        mockConnection.query
+            .mockResolvedValueOnce([[
+                {
+                    id: 7,
+                    user_id: 1,
+                    status: 'Pending'
+                }
+            ]])
+            .mockResolvedValueOnce([{ affectedRows: 1 }])
+            .mockRejectedValueOnce(
+                new Error('Audit insert failed')
+            );
+
+        const res = await request(app)
+            .patch('/api/complaints/7/status')
+            .set('Authorization', `Bearer ${supervisorToken}`)
+            .send({ status: 'Resolved' });
+
+        expect(res.statusCode).toBe(500);
+        expect(mockConnection.rollback).toHaveBeenCalledTimes(1);
+        expect(mockConnection.commit).not.toHaveBeenCalled();
+        expect(mockConnection.release).toHaveBeenCalledTimes(1);
     });
 
     test('PATCH status rejects a missing token', async () => {
@@ -529,6 +601,16 @@ describe('WMS Dashboard & Complaints API', () => {
         expect(res.statusCode).toBe(403);
     });
 
+    test('PATCH status rejects a Worker', async () => {
+        const res = await request(app)
+            .patch('/api/complaints/7/status')
+            .set('Authorization', `Bearer ${workerToken}`)
+            .send({ status: 'Resolved' });
+
+        expect(res.statusCode).toBe(403);
+        expect(db.getConnection).not.toHaveBeenCalled();
+    });
+
     test('PATCH status rejects an invalid status for a Supervisor', async () => {
         const res = await request(app)
             .patch('/api/complaints/1/status')
@@ -537,6 +619,7 @@ describe('WMS Dashboard & Complaints API', () => {
 
         expect(res.statusCode).toBe(400);
         expect(res.body.success).toBe(false);
+        expect(db.getConnection).not.toHaveBeenCalled();
     });
 
     test('PATCH status rejects a missing status for a Supervisor', async () => {
@@ -546,5 +629,102 @@ describe('WMS Dashboard & Complaints API', () => {
             .send({});
 
         expect(res.statusCode).toBe(400);
+        expect(db.getConnection).not.toHaveBeenCalled();
+    });
+
+    test('PATCH status requires a reason for an Admin override', async () => {
+        const res = await request(app)
+            .patch('/api/complaints/7/status')
+            .set('Authorization', `Bearer ${adminToken}`)
+            .send({ status: 'Resolved' });
+
+        expect(res.statusCode).toBe(400);
+        expect(res.body.message).toContain('reason');
+        expect(db.getConnection).not.toHaveBeenCalled();
+    });
+
+    test('PATCH status rejects an empty Admin override reason', async () => {
+        const res = await request(app)
+            .patch('/api/complaints/7/status')
+            .set('Authorization', `Bearer ${adminToken}`)
+            .send({
+                status: 'Resolved',
+                reason: '   '
+            });
+
+        expect(res.statusCode).toBe(400);
+        expect(db.getConnection).not.toHaveBeenCalled();
+    });
+
+    test('PATCH status allows an Admin override with a reason and audits it', async () => {
+        mockConnection.query
+            .mockResolvedValueOnce([[
+                {
+                    id: 7,
+                    user_id: 1,
+                    status: 'Pending'
+                }
+            ]])
+            .mockResolvedValueOnce([{ affectedRows: 1 }])
+            .mockResolvedValueOnce([{ insertId: 2 }])
+            .mockResolvedValueOnce([[
+                {
+                    id: 7,
+                    user_id: 1,
+                    status: 'Resolved'
+                }
+            ]]);
+
+        const res = await request(app)
+            .patch('/api/complaints/7/status')
+            .set('Authorization', `Bearer ${adminToken}`)
+            .send({
+                status: 'Resolved',
+                reason: 'Administrative review'
+            });
+
+        expect(res.statusCode).toBe(200);
+        expect(res.body.success).toBe(true);
+
+        const auditCall = mockConnection.query.mock.calls[2];
+
+        expect(auditCall[0]).toContain('INSERT INTO audit_logs');
+        expect(auditCall[1]).toContain('COMPLAINT_STATUS_OVERRIDE');
+        expect(auditCall[1]).toContain('Administrative review');
+
+        expect(mockConnection.commit).toHaveBeenCalledTimes(1);
+        expect(mockConnection.rollback).not.toHaveBeenCalled();
+    });
+
+    test('PATCH status does not create an audit event for an unchanged status', async () => {
+        mockConnection.query.mockResolvedValueOnce([[
+            {
+                id: 7,
+                user_id: 1,
+                status: 'Resolved'
+            }
+        ]]);
+
+        const res = await request(app)
+            .patch('/api/complaints/7/status')
+            .set('Authorization', `Bearer ${supervisorToken}`)
+            .send({ status: 'Resolved' });
+
+        expect(res.statusCode).toBe(200);
+        expect(res.body.success).toBe(true);
+        expect(res.body.data.status).toBe('Resolved');
+
+        expect(mockConnection.query).toHaveBeenCalledTimes(1);
+        expect(mockConnection.commit).toHaveBeenCalledTimes(1);
+    });
+
+    test('PATCH status rejects an invalid complaint ID', async () => {
+        const res = await request(app)
+            .patch('/api/complaints/abc/status')
+            .set('Authorization', `Bearer ${supervisorToken}`)
+            .send({ status: 'Resolved' });
+
+        expect(res.statusCode).toBe(400);
+        expect(db.getConnection).not.toHaveBeenCalled();
     });
 });

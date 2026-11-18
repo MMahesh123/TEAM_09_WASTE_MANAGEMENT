@@ -1,50 +1,116 @@
-// Real-database test harness. Integration tests only run when RUN_DB_TESTS=1 (see README), so
-// `npm test` still passes on machines and CI runners without MySQL.
+
+// Real-database integration test harness.
 //
-// Required environment: DB_HOST, DB_USER, DB_PASSWORD (same as the app). The tests build their own
-// scratch database (DB_NAME defaults to wms_test_louis) and never touch TEAM_09_WASTE_MANAGEMENT.
+// Integration tests run only when RUN_DB_TESTS=1.
+// They use a separate scratch database and never touch the application database.
+//
+// Required environment:
+// DB_HOST, DB_USER, DB_PASSWORD
+//
+// Optional:
+// TEST_DB_NAME (defaults to wms_test_louis)
+
+const mysql = require('mysql2/promise');
 const fs = require('fs');
 const path = require('path');
-const mysql = require('mysql2/promise');
+
+const root = path.join(__dirname, '..', '..');
+
+// Load MySQL credentials before opening any database connection.
+require('dotenv').config({
+  path: path.join(root, '.env')
+});
 
 const ENABLED = process.env.RUN_DB_TESTS === '1';
 const TEST_DB = process.env.TEST_DB_NAME || 'wms_test_louis';
 
-// Must run before ../src/config/db is first required so the app's pool points at the scratch database.
-if (ENABLED) {
-  process.env.DB_NAME = TEST_DB;
-  process.env.JWT_SECRET = process.env.JWT_SECRET || 'integration-secret';
+// Safety: this harness is allowed to use ONLY its dedicated scratch DB.
+if (TEST_DB !== 'wms_test_louis') {
+  throw new Error(
+    `Unsafe integration test database name: ${TEST_DB}. Only wms_test_louis is allowed.`
+  );
 }
 
-const root = path.join(__dirname, '..', '..');
-const sqlFile = (rel) => fs.readFileSync(path.join(root, rel), 'utf8').replace(/^\s*USE\s+[^;]+;/gim, '');
+if (ENABLED) {
+  const missing = ['DB_HOST', 'DB_USER', 'DB_PASSWORD']
+    .filter((key) => !process.env[key]);
 
-// users: the real table from schema.sql. collection_logs: the shared contract from the pending
-// placeholder (sql/sprint2_schema.sql); swap in database/modules/collection.sql once it is merged.
-const usersTable = () => {
-  const m = sqlFile('database/schema.sql').match(/CREATE TABLE IF NOT EXISTS users \([\s\S]*?\n\);/);
-  return m[0];
+  if (missing.length > 0) {
+    throw new Error(
+      `Missing MySQL configuration in .env: ${missing.join(', ')}`
+    );
+  }
+
+  process.env.DB_NAME = TEST_DB;
+  process.env.JWT_SECRET =
+    process.env.JWT_SECRET || 'integration-secret';
+}
+
+const sqlFile = (relativePath) => {
+  return fs.readFileSync(path.join(root, relativePath), 'utf8')
+    .replace(/^\s*CREATE DATABASE IF NOT EXISTS\s+[^;]+;/gim, '')
+    .replace(/^\s*USE\s+[^;]+;/gim, '');
 };
 
 async function createSchema() {
+  if (!ENABLED) {
+    throw new Error('Database integration tests are not enabled');
+  }
+
   const admin = await mysql.createConnection({
-    host: process.env.DB_HOST || 'localhost', user: process.env.DB_USER || 'root',
-    password: process.env.DB_PASSWORD || '', multipleStatements: true
+    host: process.env.DB_HOST,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    multipleStatements: true
   });
-  await admin.query(`DROP DATABASE IF EXISTS \`${TEST_DB}\`; CREATE DATABASE \`${TEST_DB}\`; USE \`${TEST_DB}\`;`);
-  await admin.query(usersTable());
-  await admin.query(sqlFile('sql/sprint2_schema.sql'));
-  await admin.query(sqlFile('database/modules/disposal.sql'));
-  await admin.query(sqlFile('database/modules/payments.sql'));
-  await admin.end();
+
+  try {
+    await admin.query(
+      `DROP DATABASE IF EXISTS \`${TEST_DB}\`;
+       CREATE DATABASE \`${TEST_DB}\`;
+       USE \`${TEST_DB}\`;`
+    );
+
+    await admin.query(sqlFile('database/schema.sql'));
+    await admin.query(sqlFile('database/modules/assignments.sql'));
+    await admin.query(sqlFile('database/modules/collection.sql'));
+    await admin.query(sqlFile('database/modules/disposal.sql'));
+
+    await admin.query(
+      sqlFile('database/migrations/20261117_create_disposal_logs.sql')
+    );
+
+    await admin.query(sqlFile('database/modules/payments.sql'));
+
+    await admin.query(
+      sqlFile('database/migrations/20261117_create_audit_logs.sql')
+    );
+
+    console.log(`Integration test schema created: ${TEST_DB}`);
+  } finally {
+    await admin.end();
+  }
 }
 
 async function dropSchema() {
+  if (!ENABLED) return;
+
   const admin = await mysql.createConnection({
-    host: process.env.DB_HOST || 'localhost', user: process.env.DB_USER || 'root', password: process.env.DB_PASSWORD || ''
+    host: process.env.DB_HOST,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD
   });
-  await admin.query(`DROP DATABASE IF EXISTS \`${TEST_DB}\``);
-  await admin.end();
+
+  try {
+    await admin.query(`DROP DATABASE IF EXISTS \`${TEST_DB}\``);
+    console.log(`Integration test schema dropped: ${TEST_DB}`);
+  } finally {
+    await admin.end();
+  }
 }
 
-module.exports = { ENABLED, createSchema, dropSchema };
+module.exports = {
+  ENABLED,
+  createSchema,
+  dropSchema
+};
