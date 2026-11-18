@@ -205,6 +205,59 @@ d('disposal and payments against a real database', () => {
         .rejects.toBeDefined();
     });
 
+    describe('cancelling a payment', () => {
+      let w3;
+      const sim = (body) => simulate({ worker_id: w3, period_start: '2026-08-01', period_end: '2026-08-31', rate_per_ton: 50, ...body });
+      beforeAll(async () => {
+        w3 = await newUser('worker3', 'Worker');
+        await addLog(w3, 2, '2026-08-10');
+        await addLog(w3, 3, '2026-08-20');
+      });
+
+      it('releases the logs so the same period can be paid again', async () => {
+        const first = await sim();
+        expect(first.status).toBe(201);
+        expect((await sim()).status).toBe(409); // logs are locked by the first payment
+
+        const cancelled = await request(app).post(`/api/payments/${first.body.data.payment_id}/cancel`).set(admin());
+        expect(cancelled.status).toBe(200);
+        expect(cancelled.body).toMatchObject({ released_log_count: 2, data: { status: 'Cancelled', log_count: 0 } });
+        expect(cancelled.body.data.cancelled_at).toBeTruthy();
+
+        const again = await sim();
+        expect(again.status).toBe(201);
+        expect(again.body.data).toMatchObject({ total_tons: 5, amount: 250, log_count: 2 });
+        expect(again.body.data.payment_id).not.toBe(first.body.data.payment_id);
+      });
+      it('refuses to cancel a payment that is already cancelled or paid', async () => {
+        const [[cancelledRow]] = await db.query("SELECT payment_id FROM payments WHERE worker_id = ? AND status = 'Cancelled'", [w3]);
+        expect((await request(app).post(`/api/payments/${cancelledRow.payment_id}/cancel`).set(admin())).status).toBe(409);
+
+        const [[live]] = await db.query("SELECT payment_id FROM payments WHERE worker_id = ? AND status = 'Simulated'", [w3]);
+        expect((await request(app).patch(`/api/payments/${live.payment_id}/status`).set(admin()).send({ status: 'Paid' })).status).toBe(200);
+        const res = await request(app).post(`/api/payments/${live.payment_id}/cancel`).set(admin());
+        expect(res.status).toBe(409);
+        const [items] = await db.query('SELECT COUNT(*) AS n FROM payment_items WHERE payment_id = ?', [live.payment_id]);
+        expect(items[0].n).toBe(2); // a Paid payment keeps its logs
+      });
+      it('a Cancelled payment cannot be marked Paid, and 404 for an unknown payment', async () => {
+        const [[cancelledRow]] = await db.query("SELECT payment_id FROM payments WHERE worker_id = ? AND status = 'Cancelled'", [w3]);
+        expect((await request(app).patch(`/api/payments/${cancelledRow.payment_id}/status`).set(admin()).send({ status: 'Paid' })).status).toBe(409);
+        expect((await request(app).post('/api/payments/999999/cancel').set(admin())).status).toBe(404);
+      });
+      it('lets only one of many simultaneous cancellations win', async () => {
+        const w4 = await newUser('worker4', 'Worker');
+        await addLog(w4, 1, '2026-07-05');
+        const made = await simulate({ worker_id: w4, period_start: '2026-07-01', period_end: '2026-07-31' });
+        const id = made.body.data.payment_id;
+        const results = await Promise.all(Array.from({ length: 10 }, () => request(app).post(`/api/payments/${id}/cancel`).set(admin())));
+        expect(results.filter((r) => r.status === 200)).toHaveLength(1);
+        expect(results.filter((r) => r.status === 409)).toHaveLength(9);
+        const [items] = await db.query('SELECT COUNT(*) AS n FROM payment_items WHERE payment_id = ?', [id]);
+        expect(items[0].n).toBe(0);
+      });
+    });
+
     describe('visibility and status', () => {
       let pay1, pay2;
       beforeAll(async () => {
@@ -224,7 +277,8 @@ d('disposal and payments against a real database', () => {
       });
       it('staff can list, filter and read any payment', async () => {
         const all = await request(app).get('/api/payments').set(sup());
-        expect(new Set(all.body.data.map((p) => p.worker_id))).toEqual(new Set([w1, w2]));
+        const seen = new Set(all.body.data.map((p) => p.worker_id));
+        expect(seen.has(w1) && seen.has(w2)).toBe(true);
         const one = await request(app).get(`/api/payments?worker_id=${w2}&limit=1`).set(admin());
         expect(one.body.data).toHaveLength(1);
         expect((await request(app).get(`/api/payments/${pay2}`).set(sup())).body.data).toMatchObject({ worker_id: w2, total_tons: 4 });

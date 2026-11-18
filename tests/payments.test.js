@@ -328,3 +328,69 @@ describe('PATCH /api/payments/:id/status', () => {
     expect((await request(app).patch(url).set(admin).send({ status: 'Paid' })).status).toBe(404);
   });
 });
+
+describe('POST /api/payments/:id/cancel', () => {
+  const url = '/api/payments/3/cancel';
+  const cancel = (headers = admin) => request(app).post(url).set(headers);
+
+  it.each([[sup], [worker], [citizen]])('only Admin may cancel (role %#)', async (headers) => {
+    expect((await cancel(headers)).status).toBe(403);
+    expect(db.getConnection).not.toHaveBeenCalled();
+  });
+  it('requires a token', async () => {
+    expect((await request(app).post(url)).status).toBe(401);
+  });
+  it.each(['abc', '0', '-4', '1.5'])('400 for payment id "%s"', async (id) => {
+    expect((await request(app).post(`/api/payments/${id}/cancel`).set(admin)).status).toBe(400);
+    expect(db.getConnection).not.toHaveBeenCalled();
+  });
+  it('voids a Simulated payment and releases its logs in one transaction', async () => {
+    db.conn.query
+      .mockResolvedValueOnce([{ affectedRows: 1 }])
+      .mockResolvedValueOnce([{ affectedRows: 3 }]);
+    db.query.mockResolvedValueOnce([[{ payment_id: 3, status: 'Cancelled', total_tons: '5', rate_per_ton: '10', amount: '50', log_count: 0 }]]);
+    const res = await cancel();
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ released_log_count: 3, data: { status: 'Cancelled', amount: 50, log_count: 0 } });
+    expect(db.conn.query.mock.calls[0][0]).toMatch(/status = 'Simulated'/);
+    expect(db.conn.query.mock.calls[1][0]).toMatch(/DELETE FROM payment_items/);
+    expect(db.conn.commit).toHaveBeenCalledTimes(1);
+    expect(db.conn.rollback).not.toHaveBeenCalled();
+    expect(db.conn.release).toHaveBeenCalledTimes(1);
+  });
+  it.each(['Paid', 'Cancelled'])('refuses to cancel a %s payment (409) without deleting anything', async (status) => {
+    db.conn.query.mockResolvedValueOnce([{ affectedRows: 0 }]).mockResolvedValueOnce([[{ status }]]);
+    const res = await cancel();
+    expect(res.status).toBe(409);
+    expect(res.body.message).toContain(status);
+    expect(db.conn.query).toHaveBeenCalledTimes(2); // no DELETE issued
+    expect(db.conn.commit).not.toHaveBeenCalled();
+    expect(db.conn.rollback).toHaveBeenCalled();
+  });
+  it('404 for an unknown payment', async () => {
+    db.conn.query.mockResolvedValueOnce([{ affectedRows: 0 }]).mockResolvedValueOnce([[]]);
+    expect((await cancel()).status).toBe(404);
+    expect(db.conn.release).toHaveBeenCalledTimes(1);
+  });
+  it('rolls back and hides details when releasing the logs fails', async () => {
+    db.conn.query.mockResolvedValueOnce([{ affectedRows: 1 }]).mockRejectedValueOnce(new Error('secret sql detail'));
+    const res = await cancel();
+    expect(res.status).toBe(500);
+    expect(JSON.stringify(res.body)).not.toMatch(/secret/);
+    expect(db.conn.rollback).toHaveBeenCalledTimes(1);
+    expect(db.conn.commit).not.toHaveBeenCalled();
+    expect(db.conn.release).toHaveBeenCalledTimes(1);
+  });
+  it('asks the client to retry after a deadlock', async () => {
+    db.conn.query.mockRejectedValueOnce(Object.assign(new Error('x'), { code: 'ER_LOCK_DEADLOCK' }));
+    const res = await cancel();
+    expect(res.status).toBe(409);
+    expect(res.body.message).toMatch(/retry/);
+  });
+  it('a Cancelled payment can no longer be marked Paid', async () => {
+    db.query.mockResolvedValueOnce([{ affectedRows: 0 }]).mockResolvedValueOnce([[{ status: 'Cancelled' }]]);
+    const res = await request(app).patch('/api/payments/3/status').set(admin).send({ status: 'Paid' });
+    expect(res.status).toBe(409);
+    expect(res.body.message).toMatch(/already Cancelled/);
+  });
+});
