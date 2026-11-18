@@ -19,11 +19,15 @@ if (ENABLED) {
 const root = path.join(__dirname, '..', '..');
 const sqlFile = (rel) => fs.readFileSync(path.join(root, rel), 'utf8').replace(/^\s*USE\s+[^;]+;/gim, '');
 
-// users: the real table from schema.sql. collection_logs: the shared contract from the pending
-// placeholder (sql/sprint2_schema.sql); swap in database/modules/collection.sql once it is merged.
-const usersTable = () => {
-  const m = sqlFile('database/schema.sql').match(/CREATE TABLE IF NOT EXISTS users \([\s\S]*?\n\);/);
-  return m[0];
+// The scratch database is built from the project's real SQL, in the documented dependency order:
+// schema.sql (only the tables the modules need) -> assignments -> collection -> disposal -> payments.
+const baseTables = () => {
+  const schema = sqlFile('database/schema.sql');
+  return ['users', 'vehicles', 'wards'].map((name) => {
+    const m = schema.match(new RegExp(`CREATE TABLE IF NOT EXISTS ${name} \\([\\s\\S]*?\\n\\);`));
+    if (!m) throw new Error(`Table ${name} not found in database/schema.sql`);
+    return m[0];
+  });
 };
 
 async function createSchema() {
@@ -32,8 +36,9 @@ async function createSchema() {
     password: process.env.DB_PASSWORD || '', multipleStatements: true
   });
   await admin.query(`DROP DATABASE IF EXISTS \`${TEST_DB}\`; CREATE DATABASE \`${TEST_DB}\`; USE \`${TEST_DB}\`;`);
-  await admin.query(usersTable());
-  await admin.query(sqlFile('sql/sprint2_schema.sql'));
+  for (const ddl of baseTables()) await admin.query(ddl);
+  await admin.query(sqlFile('database/modules/assignments.sql'));
+  await admin.query(sqlFile('database/modules/collection.sql'));
   await admin.query(sqlFile('database/modules/disposal.sql'));
   await admin.query(sqlFile('database/modules/payments.sql'));
   await admin.end();

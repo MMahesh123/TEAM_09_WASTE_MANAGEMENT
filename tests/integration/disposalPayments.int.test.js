@@ -13,8 +13,18 @@ d('disposal and payments against a real database', () => {
       [name, `${name}@example.com`, 'x', role]);
     return r.insertId;
   };
+  // collection_logs rows must reference a real assignment (vehicle + ward + worker + shift), so build one per log.
+  let seq = 0;
   const addLog = async (workerId, tons, date) => {
-    const [r] = await db.query('INSERT INTO collection_logs (worker_id, waste_tons, collected_at) VALUES (?, ?, ?)', [workerId, tons, date]);
+    seq += 1;
+    const [v] = await db.query('INSERT INTO vehicles (registration_number, capacity_tons) VALUES (?, 20)', [`KA-TEST-${seq}`]);
+    const [w] = await db.query('INSERT INTO wards (ward_number, ward_name, zone) VALUES (?, ?, ?)', [`W${seq}`, `Ward ${seq}`, 'Zone']);
+    const [a] = await db.query(
+      "INSERT INTO assignments (vehicle_id, worker_id, ward_id, shift_date, shift) VALUES (?, ?, ?, ?, 'Morning')",
+      [v.insertId, workerId, w.insertId, date]);
+    const [r] = await db.query(
+      "INSERT INTO collection_logs (assignment_id, worker_id, waste_type, waste_tons, collected_at) VALUES (?, ?, 'Mixed', ?, ?)",
+      [a.insertId, workerId, tons, date]);
     return r.insertId;
   };
   const newSite = async (name, cap) => {
@@ -88,6 +98,52 @@ d('disposal and payments against a real database', () => {
       expect((await request(app).get(`/api/disposal/${id}`).set(admin())).body.data.current_load_tons).toBe(1);
     });
 
+    it('filters, pages and summarises sites against real data', async () => {
+      const full = await newSite('Zz-filter-full', 5);
+      await newSite('Zz-filter-open', 50);
+      await request(app).post(`/api/disposal/${full}/load`).set(sup()).send({ tons: 5, action: 'add' });
+      const names = async (qs) => (await request(app).get(`/api/disposal?${qs}`).set(workerHdr(5))).body.data.map((s) => s.name);
+      expect(await names('search=zz-filter&has_capacity=true')).toEqual(['Zz-filter-open']);
+      expect(await names('search=zz-filter&has_capacity=false')).toEqual(['Zz-filter-full']);
+      expect(await names('search=zz-filter&limit=1&offset=1')).toEqual(['Zz-filter-open']);
+      expect(await names('search=%25')).toEqual([]); // a literal % matches nothing, it is not a wildcard
+      expect(await names("search=' OR 1=1 --")).toEqual([]);
+      const sum = await request(app).get('/api/disposal/summary').set(sup());
+      const [[t]] = await db.query('SELECT COUNT(*) AS n, SUM(max_capacity_tons) AS c, SUM(current_load_tons) AS l, SUM(current_load_tons >= max_capacity_tons) AS f FROM disposal_sites');
+      expect(sum.body.data).toMatchObject({ sites: t.n, full_sites: Number(t.f), total_capacity_tons: Number(t.c), total_load_tons: Number(t.l) });
+      expect((await request(app).get('/api/disposal/summary').set(workerHdr(5))).status).toBe(403);
+    });
+    it('records every accepted load change and nothing for rejected ones', async () => {
+      const id = await newSite('history', 10);
+      await request(app).post(`/api/disposal/${id}/load`).set(sup()).send({ tons: 6, action: 'add' });
+      await request(app).post(`/api/disposal/${id}/load`).set(sup()).send({ tons: 5, action: 'add' }); // over capacity
+      await request(app).post(`/api/disposal/${id}/load`).set(sup()).send({ tons: 2.5, action: 'remove' });
+      await request(app).post(`/api/disposal/${id}/load`).set(sup()).send({ tons: 9, action: 'remove' }); // below zero
+      const res = await request(app).get(`/api/disposal/${id}/history`).set(admin());
+      expect(res.status).toBe(200);
+      expect(res.body.data.map((r) => [r.action, r.tons, r.load_after])).toEqual([['remove', 2.5, 3.5], ['add', 6, 6]]);
+      const paged = await request(app).get(`/api/disposal/${id}/history?limit=1&offset=1`).set(admin());
+      expect(paged.body.data.map((r) => r.action)).toEqual(['add']);
+      expect((await request(app).get(`/api/disposal/${id}/history`).set(workerHdr(5))).status).toBe(403);
+      expect((await request(app).get('/api/disposal/999999/history').set(admin())).status).toBe(404);
+    });
+    it('keeps history consistent with the final load under concurrency', async () => {
+      const id = await newSite('history-race', 100);
+      await Promise.all(Array.from({ length: 20 }, () =>
+        request(app).post(`/api/disposal/${id}/load`).set(sup()).send({ tons: 1, action: 'add' })));
+      const [[row]] = await db.query('SELECT COUNT(*) AS n, MAX(load_after) AS top FROM disposal_log WHERE site_id = ?', [id]);
+      expect(row.n).toBe(20);
+      expect(Number(row.top)).toBe(20);
+      expect((await request(app).get(`/api/disposal/${id}`).set(admin())).body.data.current_load_tons).toBe(20);
+    });
+    it('removes the history with a deleted site', async () => {
+      const id = await newSite('history-gone', 10);
+      await request(app).post(`/api/disposal/${id}/load`).set(sup()).send({ tons: 1, action: 'add' });
+      await request(app).post(`/api/disposal/${id}/load`).set(sup()).send({ tons: 1, action: 'remove' });
+      await request(app).delete(`/api/disposal/${id}`).set(admin());
+      const [[row]] = await db.query('SELECT COUNT(*) AS n FROM disposal_log WHERE site_id = ?', [id]);
+      expect(row.n).toBe(0);
+    });
     it('blocks shrinking capacity below the load and deleting a loaded site', async () => {
       const id = await newSite('Loaded', 50);
       await request(app).post(`/api/disposal/${id}/load`).set(sup()).send({ tons: 20, action: 'add' });
@@ -195,6 +251,59 @@ d('disposal and payments against a real database', () => {
         .rejects.toBeDefined();
     });
 
+    describe('cancelling a payment', () => {
+      let w3;
+      const sim = (body) => simulate({ worker_id: w3, period_start: '2026-08-01', period_end: '2026-08-31', rate_per_ton: 50, ...body });
+      beforeAll(async () => {
+        w3 = await newUser('worker3', 'Worker');
+        await addLog(w3, 2, '2026-08-10');
+        await addLog(w3, 3, '2026-08-20');
+      });
+
+      it('releases the logs so the same period can be paid again', async () => {
+        const first = await sim();
+        expect(first.status).toBe(201);
+        expect((await sim()).status).toBe(409); // logs are locked by the first payment
+
+        const cancelled = await request(app).post(`/api/payments/${first.body.data.payment_id}/cancel`).set(admin());
+        expect(cancelled.status).toBe(200);
+        expect(cancelled.body).toMatchObject({ released_log_count: 2, data: { status: 'Cancelled', log_count: 0 } });
+        expect(cancelled.body.data.cancelled_at).toBeTruthy();
+
+        const again = await sim();
+        expect(again.status).toBe(201);
+        expect(again.body.data).toMatchObject({ total_tons: 5, amount: 250, log_count: 2 });
+        expect(again.body.data.payment_id).not.toBe(first.body.data.payment_id);
+      });
+      it('refuses to cancel a payment that is already cancelled or paid', async () => {
+        const [[cancelledRow]] = await db.query("SELECT payment_id FROM payments WHERE worker_id = ? AND status = 'Cancelled'", [w3]);
+        expect((await request(app).post(`/api/payments/${cancelledRow.payment_id}/cancel`).set(admin())).status).toBe(409);
+
+        const [[live]] = await db.query("SELECT payment_id FROM payments WHERE worker_id = ? AND status = 'Simulated'", [w3]);
+        expect((await request(app).patch(`/api/payments/${live.payment_id}/status`).set(admin()).send({ status: 'Paid' })).status).toBe(200);
+        const res = await request(app).post(`/api/payments/${live.payment_id}/cancel`).set(admin());
+        expect(res.status).toBe(409);
+        const [items] = await db.query('SELECT COUNT(*) AS n FROM payment_items WHERE payment_id = ?', [live.payment_id]);
+        expect(items[0].n).toBe(2); // a Paid payment keeps its logs
+      });
+      it('a Cancelled payment cannot be marked Paid, and 404 for an unknown payment', async () => {
+        const [[cancelledRow]] = await db.query("SELECT payment_id FROM payments WHERE worker_id = ? AND status = 'Cancelled'", [w3]);
+        expect((await request(app).patch(`/api/payments/${cancelledRow.payment_id}/status`).set(admin()).send({ status: 'Paid' })).status).toBe(409);
+        expect((await request(app).post('/api/payments/999999/cancel').set(admin())).status).toBe(404);
+      });
+      it('lets only one of many simultaneous cancellations win', async () => {
+        const w4 = await newUser('worker4', 'Worker');
+        await addLog(w4, 1, '2026-07-05');
+        const made = await simulate({ worker_id: w4, period_start: '2026-07-01', period_end: '2026-07-31' });
+        const id = made.body.data.payment_id;
+        const results = await Promise.all(Array.from({ length: 10 }, () => request(app).post(`/api/payments/${id}/cancel`).set(admin())));
+        expect(results.filter((r) => r.status === 200)).toHaveLength(1);
+        expect(results.filter((r) => r.status === 409)).toHaveLength(9);
+        const [items] = await db.query('SELECT COUNT(*) AS n FROM payment_items WHERE payment_id = ?', [id]);
+        expect(items[0].n).toBe(0);
+      });
+    });
+
     describe('visibility and status', () => {
       let pay1, pay2;
       beforeAll(async () => {
@@ -214,11 +323,26 @@ d('disposal and payments against a real database', () => {
       });
       it('staff can list, filter and read any payment', async () => {
         const all = await request(app).get('/api/payments').set(sup());
-        expect(new Set(all.body.data.map((p) => p.worker_id))).toEqual(new Set([w1, w2]));
+        const seen = new Set(all.body.data.map((p) => p.worker_id));
+        expect(seen.has(w1) && seen.has(w2)).toBe(true);
         const one = await request(app).get(`/api/payments?worker_id=${w2}&limit=1`).set(admin());
         expect(one.body.data).toHaveLength(1);
         expect((await request(app).get(`/api/payments/${pay2}`).set(sup())).body.data).toMatchObject({ worker_id: w2, total_tons: 4 });
         expect((await request(app).get('/api/payments/999999').set(admin())).status).toBe(404);
+      });
+      it('summarises payments per status for reports', async () => {
+        const all = await request(app).get('/api/payments/summary').set(sup());
+        expect(all.status).toBe(200);
+        const [[db_]] = await db.query("SELECT COUNT(*) AS n, COALESCE(SUM(amount),0) AS a FROM payments WHERE status = 'Cancelled'");
+        expect(all.body.data.by_status.Cancelled).toMatchObject({ payments: db_.n, amount: Number(db_.a) });
+        const [[act]] = await db.query("SELECT COUNT(*) AS n, COALESCE(SUM(amount),0) AS a FROM payments WHERE status <> 'Cancelled'");
+        expect(all.body.data.active).toMatchObject({ payments: act.n, amount: Number(act.a) });
+
+        const one = await request(app).get(`/api/payments/summary?worker_id=${w2}&from=2026-10-01&to=2026-10-31`).set(admin());
+        expect(one.body.data.by_status.Simulated).toEqual({ payments: 1, total_tons: 4, amount: 40 });
+        const none = await request(app).get('/api/payments/summary?from=2030-01-01&to=2030-12-31').set(admin());
+        expect(none.body.data.active).toEqual({ payments: 0, total_tons: 0, amount: 0 });
+        expect((await request(app).get('/api/payments/summary').set(workerHdr(w1))).status).toBe(403);
       });
       it('citizens are forbidden', async () => {
         expect((await request(app).get('/api/payments').set({ Authorization: token('Citizen', citizenId) })).status).toBe(403);

@@ -1,4 +1,4 @@
-jest.mock('../src/config/db', () => ({ query: jest.fn() }));
+jest.mock('../src/config/db', () => require('./helpers/mockDb').makeDb());
 jest.mock('../src/middleware/authMiddleware', () => require('./helpers/mockAuth'));
 const request = require('supertest');
 const app = require('../src/app');
@@ -8,7 +8,7 @@ const admin = { 'x-role': 'Admin' };
 const sup = { 'x-role': 'Supervisor' };
 const worker = { 'x-role': 'Worker', 'x-user-id': '5' };
 const citizen = { 'x-role': 'Citizen' };
-beforeEach(() => db.query.mockReset());
+beforeEach(() => require('./helpers/mockDb').resetDb(db));
 
 const dbError = () => Object.assign(new Error('secret sql detail'), { code: 'ER_LOCK_DEADLOCK' });
 const dupError = () => Object.assign(new Error('Duplicate entry'), { code: 'ER_DUP_ENTRY' });
@@ -94,6 +94,68 @@ describe('GET /api/disposal', () => {
   });
 });
 
+describe('GET /api/disposal filters and paging', () => {
+  it('searches name and location with an escaped, bound pattern', async () => {
+    db.query.mockResolvedValueOnce([[]]);
+    const res = await request(app).get('/api/disposal').query({ search: '50%_x' }).set(citizen);
+    expect(res.status).toBe(200);
+    expect(db.query.mock.calls[0][0]).toMatch(/WHERE \(name LIKE \? OR location LIKE \?\) ORDER BY name$/);
+    expect(db.query.mock.calls[0][1]).toEqual(['%50\\%\\_x%', '%50\\%\\_x%']);
+  });
+  it.each([['true', /current_load_tons < max_capacity_tons/], ['false', /current_load_tons >= max_capacity_tons/]])('has_capacity=%s', async (v, re) => {
+    db.query.mockResolvedValueOnce([[]]);
+    await request(app).get(`/api/disposal?has_capacity=${v}`).set(worker);
+    expect(db.query.mock.calls[0][0]).toMatch(re);
+  });
+  it('combines filters with paging', async () => {
+    db.query.mockResolvedValueOnce([[]]);
+    const res = await request(app).get('/api/disposal?search=north&has_capacity=true&limit=5&offset=10').set(sup);
+    expect(res.body).toMatchObject({ limit: 5, offset: 10 });
+    expect(db.query.mock.calls[0][0]).toMatch(/AND current_load_tons < max_capacity_tons\) ORDER BY name LIMIT \? OFFSET \?$|AND current_load_tons < max_capacity_tons ORDER BY name LIMIT \? OFFSET \?$/);
+    expect(db.query.mock.calls[0][1].slice(-2)).toEqual([5, 10]);
+  });
+  it('does not page unless asked to', async () => {
+    db.query.mockResolvedValueOnce([[]]);
+    const res = await request(app).get('/api/disposal').set(sup);
+    expect(res.body.limit).toBeUndefined();
+    expect(db.query.mock.calls[0][0]).not.toMatch(/LIMIT/);
+  });
+  it.each([['search='], ['search=%20%20'], [`search=${'x'.repeat(101)}`], ['has_capacity=maybe'], ['limit=0'], ['limit=500'], ['offset=-3']])('rejects %s', async (qs) => {
+    expect((await request(app).get(`/api/disposal?${qs}`).set(sup)).status).toBe(400);
+    expect(db.query).not.toHaveBeenCalled();
+  });
+});
+
+describe('GET /api/disposal/summary', () => {
+  it('requires a token and Admin/Supervisor role', async () => {
+    expect((await request(app).get('/api/disposal/summary')).status).toBe(401);
+    expect((await request(app).get('/api/disposal/summary').set(worker)).status).toBe(403);
+    expect((await request(app).get('/api/disposal/summary').set(citizen)).status).toBe(403);
+    expect(db.query).not.toHaveBeenCalled();
+  });
+  it.each([[admin], [sup]])('returns network totals (role %#)', async (headers) => {
+    db.query.mockResolvedValueOnce([[{ sites: 3, total_capacity_tons: '300.00', total_load_tons: '75.50', full_sites: '1' }]]);
+    const res = await request(app).get('/api/disposal/summary').set(headers);
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual({ sites: 3, full_sites: 1, total_capacity_tons: 300, total_load_tons: 75.5, available_tons: 224.5, utilization_pct: 25.17 });
+  });
+  it('handles no sites without dividing by zero', async () => {
+    db.query.mockResolvedValueOnce([[{ sites: 0, total_capacity_tons: '0', total_load_tons: '0', full_sites: '0' }]]);
+    const res = await request(app).get('/api/disposal/summary').set(admin);
+    expect(res.body.data).toMatchObject({ sites: 0, utilization_pct: 0, available_tons: 0 });
+  });
+  it('is not treated as a site id', async () => {
+    db.query.mockResolvedValueOnce([[{ sites: 0, total_capacity_tons: 0, total_load_tons: 0, full_sites: 0 }]]);
+    expect((await request(app).get('/api/disposal/summary').set(admin)).status).toBe(200);
+  });
+  it('does not leak DB errors', async () => {
+    db.query.mockRejectedValueOnce(dbError());
+    const res = await request(app).get('/api/disposal/summary').set(admin);
+    expect(res.status).toBe(500);
+    expect(JSON.stringify(res.body)).not.toMatch(/secret/);
+  });
+});
+
 describe('GET /api/disposal/:id', () => {
   it.each(['abc', '0', '-1', '1.5', '1e3'])('returns 400 for id "%s"', async (id) => {
     expect((await request(app).get(`/api/disposal/${id}`).set(citizen)).status).toBe(400);
@@ -175,6 +237,7 @@ describe('DELETE /api/disposal/:id', () => {
 
 describe('POST /api/disposal/:id/load', () => {
   const url = '/api/disposal/1/load';
+  const siteRow = (load = '15.00') => [[{ site_id: 1, current_load_tons: load, max_capacity_tons: '100.00', utilization_pct: '15.00' }]];
   it('rejects unauthenticated requests', async () => {
     expect((await request(app).post(url).send({ tons: 5, action: 'add' })).status).toBe(401);
   });
@@ -193,47 +256,109 @@ describe('POST /api/disposal/:id/load', () => {
     [{}],
   ])('validates tons and action %#', async (bad) => {
     expect((await request(app).post(url).set(sup).send(bad)).status).toBe(400);
-    expect(db.query).not.toHaveBeenCalled();
+    expect(db.getConnection).not.toHaveBeenCalled();
   });
   it('returns 400 for an invalid site id', async () => {
     expect((await request(app).post('/api/disposal/abc/load').set(sup).send({ tons: 5, action: 'add' })).status).toBe(400);
   });
   it.each([[sup], [admin]])('adds load as role %#', async (headers) => {
-    db.query.mockResolvedValueOnce([{ affectedRows: 1 }])
-      .mockResolvedValueOnce([[{ site_id: 1, current_load_tons: '15.00', max_capacity_tons: '100.00', utilization_pct: '15.00' }]]);
+    db.conn.query.mockResolvedValueOnce([{ affectedRows: 1 }]).mockResolvedValueOnce(siteRow()).mockResolvedValueOnce([{ affectedRows: 1 }]);
     const res = await request(app).post(url).set(headers).send({ tons: 5, action: 'add' });
     expect(res.status).toBe(200);
     expect(res.body.data).toMatchObject({ current_load_tons: 15, max_capacity_tons: 100, utilization_pct: 15 });
+    expect(db.conn.commit).toHaveBeenCalledTimes(1);
+    expect(db.conn.release).toHaveBeenCalledTimes(1);
+  });
+  it('records who changed the load in the history table', async () => {
+    db.conn.query.mockResolvedValueOnce([{ affectedRows: 1 }]).mockResolvedValueOnce(siteRow()).mockResolvedValueOnce([{ affectedRows: 1 }]);
+    await request(app).post(url).set({ 'x-role': 'Supervisor', 'x-user-id': '42' }).send({ tons: 5, action: 'add' });
+    const insert = db.conn.query.mock.calls[2];
+    expect(insert[0]).toMatch(/INSERT INTO disposal_log/);
+    expect(insert[1]).toEqual([1, 'add', 5, '15.00', 42]);
   });
   it('checks capacity inside the UPDATE (add)', async () => {
-    db.query.mockResolvedValueOnce([{ affectedRows: 1 }]).mockResolvedValueOnce([[{ current_load_tons: '1', max_capacity_tons: '9' }]]);
+    db.conn.query.mockResolvedValueOnce([{ affectedRows: 1 }]).mockResolvedValueOnce(siteRow()).mockResolvedValueOnce([{}]);
     await request(app).post(url).set(sup).send({ tons: 5, action: 'add' });
-    expect(db.query.mock.calls[0][0]).toMatch(/current_load_tons \+ \? <= max_capacity_tons/);
+    expect(db.conn.query.mock.calls[0][0]).toMatch(/current_load_tons \+ \? <= max_capacity_tons/);
   });
   it('checks the floor inside the UPDATE (remove)', async () => {
-    db.query.mockResolvedValueOnce([{ affectedRows: 1 }]).mockResolvedValueOnce([[{ current_load_tons: '1', max_capacity_tons: '9' }]]);
+    db.conn.query.mockResolvedValueOnce([{ affectedRows: 1 }]).mockResolvedValueOnce(siteRow()).mockResolvedValueOnce([{}]);
     await request(app).post(url).set(sup).send({ tons: 5, action: 'remove' });
-    expect(db.query.mock.calls[0][0]).toMatch(/current_load_tons - \? >= 0/);
+    expect(db.conn.query.mock.calls[0][0]).toMatch(/current_load_tons - \? >= 0/);
   });
-  it('rejects load that exceeds capacity', async () => {
-    db.query.mockResolvedValueOnce([{ affectedRows: 0 }]).mockResolvedValueOnce([[{ site_id: 1 }]]);
+  it('rejects load that exceeds capacity and writes no history', async () => {
+    db.conn.query.mockResolvedValueOnce([{ affectedRows: 0 }]).mockResolvedValueOnce([[{ site_id: 1 }]]);
     const res = await request(app).post(url).set(sup).send({ tons: 500, action: 'add' });
     expect(res.status).toBe(400);
     expect(res.body.message).toMatch(/capacity/);
+    expect(db.conn.rollback).toHaveBeenCalled();
+    expect(db.conn.query.mock.calls.some((c) => /INSERT INTO disposal_log/.test(c[0]))).toBe(false);
+    expect(db.conn.release).toHaveBeenCalledTimes(1);
   });
   it('rejects removing more than present', async () => {
-    db.query.mockResolvedValueOnce([{ affectedRows: 0 }]).mockResolvedValueOnce([[{ site_id: 1 }]]);
+    db.conn.query.mockResolvedValueOnce([{ affectedRows: 0 }]).mockResolvedValueOnce([[{ site_id: 1 }]]);
     const res = await request(app).post(url).set(sup).send({ tons: 500, action: 'remove' });
     expect(res.status).toBe(400);
     expect(res.body.message).toMatch(/current load/);
   });
   it('404 for unknown site', async () => {
-    db.query.mockResolvedValueOnce([{ affectedRows: 0 }]).mockResolvedValueOnce([[]]);
+    db.conn.query.mockResolvedValueOnce([{ affectedRows: 0 }]).mockResolvedValueOnce([[]]);
     expect((await request(app).post('/api/disposal/9/load').set(sup).send({ tons: 5, action: 'add' })).status).toBe(404);
+  });
+  it('rolls back and hides the error when the history insert fails', async () => {
+    db.conn.query.mockResolvedValueOnce([{ affectedRows: 1 }]).mockResolvedValueOnce(siteRow()).mockRejectedValueOnce(dbError());
+    const res = await request(app).post(url).set(sup).send({ tons: 5, action: 'add' });
+    expect(res.status).toBe(500);
+    expect(db.conn.commit).not.toHaveBeenCalled();
+    expect(db.conn.rollback).toHaveBeenCalled();
+    expect(db.conn.release).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(res.body)).not.toMatch(/secret/);
+  });
+  it('does not leak DB errors', async () => {
+    db.conn.query.mockRejectedValueOnce(dbError());
+    const res = await request(app).post(url).set(sup).send({ tons: 5, action: 'add' });
+    expect(res.status).toBe(500);
+    expect(JSON.stringify(res.body)).not.toMatch(/secret/);
+  });
+});
+
+describe('GET /api/disposal/:id/history', () => {
+  const url = '/api/disposal/1/history';
+  const logRow = { log_id: 7, site_id: 1, action: 'add', tons: '5.00', load_after: '15.00', user_id: 3, created_at: '2026-11-01T10:00:00Z' };
+  it('requires a token', async () => {
+    expect((await request(app).get(url)).status).toBe(401);
+  });
+  it.each([[worker], [citizen]])('is Admin/Supervisor only (role %#)', async (headers) => {
+    expect((await request(app).get(url).set(headers)).status).toBe(403);
+    expect(db.query).not.toHaveBeenCalled();
+  });
+  it('returns newest-first history with numeric tons', async () => {
+    db.query.mockResolvedValueOnce([[{ site_id: 1 }]]).mockResolvedValueOnce([[logRow]]);
+    const res = await request(app).get(url).set(sup);
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ count: 1, limit: 50, offset: 0 });
+    expect(res.body.data[0]).toMatchObject({ log_id: 7, tons: 5, load_after: 15, action: 'add' });
+    expect(db.query.mock.calls[1][0]).toMatch(/ORDER BY log_id DESC LIMIT \? OFFSET \?/);
+    expect(db.query.mock.calls[1][1]).toEqual([1, 50, 0]);
+  });
+  it('honours limit and offset', async () => {
+    db.query.mockResolvedValueOnce([[{ site_id: 1 }]]).mockResolvedValueOnce([[]]);
+    const res = await request(app).get(`${url}?limit=10&offset=20`).set(admin);
+    expect(res.body).toMatchObject({ limit: 10, offset: 20 });
+    expect(db.query.mock.calls[1][1]).toEqual([1, 10, 20]);
+  });
+  it.each([['limit=0'], ['limit=201'], ['limit=abc'], ['offset=-1'], ['offset=1.5']])('rejects %s', async (qs) => {
+    expect((await request(app).get(`${url}?${qs}`).set(sup)).status).toBe(400);
+    expect(db.query).not.toHaveBeenCalled();
+  });
+  it('400 for a bad id and 404 for an unknown site', async () => {
+    expect((await request(app).get('/api/disposal/abc/history').set(sup)).status).toBe(400);
+    db.query.mockResolvedValueOnce([[]]);
+    expect((await request(app).get('/api/disposal/9/history').set(sup)).status).toBe(404);
   });
   it('does not leak DB errors', async () => {
     db.query.mockRejectedValueOnce(dbError());
-    const res = await request(app).post(url).set(sup).send({ tons: 5, action: 'add' });
+    const res = await request(app).get(url).set(sup);
     expect(res.status).toBe(500);
     expect(JSON.stringify(res.body)).not.toMatch(/secret/);
   });
