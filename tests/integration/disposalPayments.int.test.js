@@ -13,8 +13,18 @@ d('disposal and payments against a real database', () => {
       [name, `${name}@example.com`, 'x', role]);
     return r.insertId;
   };
+  // collection_logs rows must reference a real assignment (vehicle + ward + worker + shift), so build one per log.
+  let seq = 0;
   const addLog = async (workerId, tons, date) => {
-    const [r] = await db.query('INSERT INTO collection_logs (worker_id, waste_tons, collected_at) VALUES (?, ?, ?)', [workerId, tons, date]);
+    seq += 1;
+    const [v] = await db.query('INSERT INTO vehicles (registration_number, capacity_tons) VALUES (?, 20)', [`KA-TEST-${seq}`]);
+    const [w] = await db.query('INSERT INTO wards (ward_number, ward_name, zone) VALUES (?, ?, ?)', [`W${seq}`, `Ward ${seq}`, 'Zone']);
+    const [a] = await db.query(
+      "INSERT INTO assignments (vehicle_id, worker_id, ward_id, shift_date, shift) VALUES (?, ?, ?, ?, 'Morning')",
+      [v.insertId, workerId, w.insertId, date]);
+    const [r] = await db.query(
+      "INSERT INTO collection_logs (assignment_id, worker_id, waste_type, waste_tons, collected_at) VALUES (?, ?, 'Mixed', ?, ?)",
+      [a.insertId, workerId, tons, date]);
     return r.insertId;
   };
   const newSite = async (name, cap) => {
