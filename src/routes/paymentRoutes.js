@@ -45,4 +45,12 @@ router.patch(
     paymentController.markPaid
 );
 
+// Cancel a simulated payment and release its collection logs — Admin only
+router.post(
+    '/:id/cancel',
+    verifyToken,
+    verifyRole(['Admin']),
+    paymentController.cancelPayment
+);
+
 module.exports = router;

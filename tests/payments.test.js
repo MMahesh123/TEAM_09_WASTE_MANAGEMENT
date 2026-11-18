@@ -254,7 +254,7 @@ describe('GET /api/payments', () => {
     expect(db.query.mock.calls[0][1]).toEqual([8, 'Paid', 10, 20]);
   });
   it.each([
-    ['worker_id=abc'], ['worker_id=0'], ['status=Cancelled'], ['limit=0'], ['limit=201'], ['limit=abc'], ['offset=-1'], ['offset=1.5'],
+    ['worker_id=abc'], ['worker_id=0'], ['status=Refunded'], ['limit=0'], ['limit=201'], ['limit=abc'], ['offset=-1'], ['offset=1.5'],
   ])('rejects bad query %s', async (qs) => {
     expect((await request(app).get(`/api/payments?${qs}`).set(admin)).status).toBe(400);
     expect(db.query).not.toHaveBeenCalled();

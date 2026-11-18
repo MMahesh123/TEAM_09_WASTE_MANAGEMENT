@@ -11,7 +11,7 @@ const MAX_AMOUNT = 9999999999.99;
 
 const STAFF_ROLES = ['Admin', 'Supervisor'];
 const PAYMENT_VIEW_ROLES = [...STAFF_ROLES, 'Worker'];
-const PAYMENT_STATUSES = ['Simulated', 'Paid'];
+const PAYMENT_STATUSES = ['Simulated', 'Paid', 'Cancelled'];
 
 // Pure calculation, exported for unit testing.
 const calculateAmount = (totalTons, ratePerTon) => round2(totalTons * ratePerTon);
@@ -229,6 +229,40 @@ exports.markPaid = async (req, res) => {
     send(res, 200, 'Payment marked as paid', { data: toPayment(rows[0]) });
   } catch (err) {
     serverError(res, err);
+  }
+};
+
+// Voids a Simulated payment and releases its collection logs so they can be paid again.
+// Status change and release happen in one transaction; a Paid or already Cancelled payment is never touched.
+exports.cancelPayment = async (req, res) => {
+  let conn;
+  try {
+    const id = parseId(req.params.id);
+    if (!id) return bad(res, 'Invalid payment id');
+
+    conn = await db.getConnection();
+    await conn.beginTransaction();
+
+    const [result] = await conn.query(
+      "UPDATE payments SET status = 'Cancelled', cancelled_at = NOW() WHERE payment_id = ? AND status = 'Simulated'", [id]
+    );
+    if (result.affectedRows === 0) {
+      const [rows] = await conn.query('SELECT status FROM payments WHERE payment_id = ?', [id]);
+      await conn.rollback();
+      if (rows.length === 0) return notFound(res, 'Payment not found');
+      return conflict(res, `Only a Simulated payment can be cancelled; this one is ${rows[0].status}`);
+    }
+    const [released] = await conn.query('DELETE FROM payment_items WHERE payment_id = ?', [id]);
+    await conn.commit();
+
+    const [rows] = await db.query(`${PAYMENT_SELECT} WHERE p.payment_id = ?`, [id]);
+    send(res, 200, 'Payment cancelled', { released_log_count: released.affectedRows, data: toPayment(rows[0]) });
+  } catch (err) {
+    if (conn) await conn.rollback().catch(() => {});
+    if (isRetryable(err)) return conflict(res, 'Another change to this payment is in progress; please retry');
+    serverError(res, err);
+  } finally {
+    if (conn) conn.release();
   }
 };
 
