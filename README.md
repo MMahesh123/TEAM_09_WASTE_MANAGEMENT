@@ -138,8 +138,8 @@ Owner: Louis. Routes: `/api/disposal` and `/api/payments`. Source: `src/controll
    mysql -u root -p < database/modules/payments.sql
    ```
 
-   `sql/sprint2_schema.sql` is a **temporary placeholder** for the collection table. Do not run it
-   once `database/modules/collection.sql` is merged; delete it at that point.
+   `collection.sql` (Pranav) now provides the real `collection_logs` table, so the temporary placeholder
+   `sql/sprint2_schema.sql` has been removed. Never run an old copy of it next to the real schema.
 2. Environment variables (see `.env.example`): `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `JWT_SECRET`,
    and optionally `WAGE_RATE_PER_TON` (default `500`, used when a request omits `rate_per_ton`).
 3. Shared contract with the collection module: `collection_logs(log_id PK, worker_id, waste_tons, collected_at DATE)`.
