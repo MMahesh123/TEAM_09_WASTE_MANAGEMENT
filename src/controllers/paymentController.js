@@ -153,6 +153,59 @@ exports.simulate = async (req, res) => {
   }
 };
 
+// WMS-F-015 (reports): payment totals per status, optionally limited to a worker and/or to payments
+// whose period lies inside [from, to]. Cancelled payments are listed but excluded from the "active" totals.
+exports.summary = async (req, res) => {
+  try {
+    const { worker_id, from, to } = req.query;
+    const conditions = [];
+    const params = [];
+    if (worker_id !== undefined) {
+      const id = parseId(worker_id);
+      if (!id) return bad(res, 'Invalid worker_id');
+      conditions.push('worker_id = ?');
+      params.push(id);
+    }
+    if (from !== undefined) {
+      if (!isISODate(from)) return bad(res, 'from must be a valid YYYY-MM-DD date');
+      conditions.push('period_start >= ?');
+      params.push(from);
+    }
+    if (to !== undefined) {
+      if (!isISODate(to)) return bad(res, 'to must be a valid YYYY-MM-DD date');
+      conditions.push('period_end <= ?');
+      params.push(to);
+    }
+    if (from && to && from > to) return bad(res, 'from must not be after to');
+
+    const where = conditions.length ? ` WHERE ${conditions.join(' AND ')}` : '';
+    const [rows] = await db.query(
+      `SELECT status, COUNT(*) AS payments, COALESCE(SUM(total_tons), 0) AS total_tons, COALESCE(SUM(amount), 0) AS amount
+       FROM payments${where} GROUP BY status`,
+      params
+    );
+
+    const byStatus = {};
+    PAYMENT_STATUSES.forEach((status) => { byStatus[status] = { payments: 0, total_tons: 0, amount: 0 }; });
+    rows.forEach((r) => {
+      byStatus[r.status] = { payments: Number(r.payments), total_tons: Number(r.total_tons), amount: Number(r.amount) };
+    });
+    const active = PAYMENT_STATUSES.filter((s) => s !== 'Cancelled').map((s) => byStatus[s]);
+    const sum = (key) => round2(active.reduce((total, row) => total + row[key], 0));
+
+    res.status(200).json({
+      code: 200,
+      filters: { worker_id: worker_id ? Number(worker_id) : null, from: from || null, to: to || null },
+      data: {
+        by_status: byStatus,
+        active: { payments: active.reduce((t, r) => t + r.payments, 0), total_tons: sum('total_tons'), amount: sum('amount') }
+      }
+    });
+  } catch (err) {
+    serverError(res, err);
+  }
+};
+
 const PAYMENT_SELECT = `SELECT p.*,
   (SELECT COUNT(*) FROM payment_items i WHERE i.payment_id = p.payment_id) AS log_count
   FROM payments p`;

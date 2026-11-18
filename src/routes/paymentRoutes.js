@@ -21,6 +21,14 @@ router.post(
     paymentController.simulate
 );
 
+// Payment totals per status for reports — Admin and Supervisor (declared before '/:id' so it is not read as an id)
+router.get(
+    '/summary',
+    verifyToken,
+    verifyRole(['Admin', 'Supervisor']),
+    paymentController.summary
+);
+
 // View all payments — Admin, Supervisor and Worker
 router.get(
     '/',

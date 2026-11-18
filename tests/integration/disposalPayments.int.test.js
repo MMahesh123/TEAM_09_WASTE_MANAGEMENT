@@ -284,6 +284,20 @@ d('disposal and payments against a real database', () => {
         expect((await request(app).get(`/api/payments/${pay2}`).set(sup())).body.data).toMatchObject({ worker_id: w2, total_tons: 4 });
         expect((await request(app).get('/api/payments/999999').set(admin())).status).toBe(404);
       });
+      it('summarises payments per status for reports', async () => {
+        const all = await request(app).get('/api/payments/summary').set(sup());
+        expect(all.status).toBe(200);
+        const [[db_]] = await db.query("SELECT COUNT(*) AS n, COALESCE(SUM(amount),0) AS a FROM payments WHERE status = 'Cancelled'");
+        expect(all.body.data.by_status.Cancelled).toMatchObject({ payments: db_.n, amount: Number(db_.a) });
+        const [[act]] = await db.query("SELECT COUNT(*) AS n, COALESCE(SUM(amount),0) AS a FROM payments WHERE status <> 'Cancelled'");
+        expect(all.body.data.active).toMatchObject({ payments: act.n, amount: Number(act.a) });
+
+        const one = await request(app).get(`/api/payments/summary?worker_id=${w2}&from=2026-10-01&to=2026-10-31`).set(admin());
+        expect(one.body.data.by_status.Simulated).toEqual({ payments: 1, total_tons: 4, amount: 40 });
+        const none = await request(app).get('/api/payments/summary?from=2030-01-01&to=2030-12-31').set(admin());
+        expect(none.body.data.active).toEqual({ payments: 0, total_tons: 0, amount: 0 });
+        expect((await request(app).get('/api/payments/summary').set(workerHdr(w1))).status).toBe(403);
+      });
       it('citizens are forbidden', async () => {
         expect((await request(app).get('/api/payments').set({ Authorization: token('Citizen', citizenId) })).status).toBe(403);
       });
