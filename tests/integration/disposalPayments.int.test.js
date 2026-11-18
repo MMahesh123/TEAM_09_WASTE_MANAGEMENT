@@ -98,6 +98,21 @@ d('disposal and payments against a real database', () => {
       expect((await request(app).get(`/api/disposal/${id}`).set(admin())).body.data.current_load_tons).toBe(1);
     });
 
+    it('filters, pages and summarises sites against real data', async () => {
+      const full = await newSite('Zz-filter-full', 5);
+      await newSite('Zz-filter-open', 50);
+      await request(app).post(`/api/disposal/${full}/load`).set(sup()).send({ tons: 5, action: 'add' });
+      const names = async (qs) => (await request(app).get(`/api/disposal?${qs}`).set(workerHdr(5))).body.data.map((s) => s.name);
+      expect(await names('search=zz-filter&has_capacity=true')).toEqual(['Zz-filter-open']);
+      expect(await names('search=zz-filter&has_capacity=false')).toEqual(['Zz-filter-full']);
+      expect(await names('search=zz-filter&limit=1&offset=1')).toEqual(['Zz-filter-open']);
+      expect(await names('search=%25')).toEqual([]); // a literal % matches nothing, it is not a wildcard
+      expect(await names("search=' OR 1=1 --")).toEqual([]);
+      const sum = await request(app).get('/api/disposal/summary').set(sup());
+      const [[t]] = await db.query('SELECT COUNT(*) AS n, SUM(max_capacity_tons) AS c, SUM(current_load_tons) AS l, SUM(current_load_tons >= max_capacity_tons) AS f FROM disposal_sites');
+      expect(sum.body.data).toMatchObject({ sites: t.n, full_sites: Number(t.f), total_capacity_tons: Number(t.c), total_load_tons: Number(t.l) });
+      expect((await request(app).get('/api/disposal/summary').set(workerHdr(5))).status).toBe(403);
+    });
     it('records every accepted load change and nothing for rejected ones', async () => {
       const id = await newSite('history', 10);
       await request(app).post(`/api/disposal/${id}/load`).set(sup()).send({ tons: 6, action: 'add' });

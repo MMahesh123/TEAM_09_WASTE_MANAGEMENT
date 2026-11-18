@@ -94,6 +94,68 @@ describe('GET /api/disposal', () => {
   });
 });
 
+describe('GET /api/disposal filters and paging', () => {
+  it('searches name and location with an escaped, bound pattern', async () => {
+    db.query.mockResolvedValueOnce([[]]);
+    const res = await request(app).get('/api/disposal').query({ search: '50%_x' }).set(citizen);
+    expect(res.status).toBe(200);
+    expect(db.query.mock.calls[0][0]).toMatch(/WHERE \(name LIKE \? OR location LIKE \?\) ORDER BY name$/);
+    expect(db.query.mock.calls[0][1]).toEqual(['%50\\%\\_x%', '%50\\%\\_x%']);
+  });
+  it.each([['true', /current_load_tons < max_capacity_tons/], ['false', /current_load_tons >= max_capacity_tons/]])('has_capacity=%s', async (v, re) => {
+    db.query.mockResolvedValueOnce([[]]);
+    await request(app).get(`/api/disposal?has_capacity=${v}`).set(worker);
+    expect(db.query.mock.calls[0][0]).toMatch(re);
+  });
+  it('combines filters with paging', async () => {
+    db.query.mockResolvedValueOnce([[]]);
+    const res = await request(app).get('/api/disposal?search=north&has_capacity=true&limit=5&offset=10').set(sup);
+    expect(res.body).toMatchObject({ limit: 5, offset: 10 });
+    expect(db.query.mock.calls[0][0]).toMatch(/AND current_load_tons < max_capacity_tons\) ORDER BY name LIMIT \? OFFSET \?$|AND current_load_tons < max_capacity_tons ORDER BY name LIMIT \? OFFSET \?$/);
+    expect(db.query.mock.calls[0][1].slice(-2)).toEqual([5, 10]);
+  });
+  it('does not page unless asked to', async () => {
+    db.query.mockResolvedValueOnce([[]]);
+    const res = await request(app).get('/api/disposal').set(sup);
+    expect(res.body.limit).toBeUndefined();
+    expect(db.query.mock.calls[0][0]).not.toMatch(/LIMIT/);
+  });
+  it.each([['search='], ['search=%20%20'], [`search=${'x'.repeat(101)}`], ['has_capacity=maybe'], ['limit=0'], ['limit=500'], ['offset=-3']])('rejects %s', async (qs) => {
+    expect((await request(app).get(`/api/disposal?${qs}`).set(sup)).status).toBe(400);
+    expect(db.query).not.toHaveBeenCalled();
+  });
+});
+
+describe('GET /api/disposal/summary', () => {
+  it('requires a token and Admin/Supervisor role', async () => {
+    expect((await request(app).get('/api/disposal/summary')).status).toBe(401);
+    expect((await request(app).get('/api/disposal/summary').set(worker)).status).toBe(403);
+    expect((await request(app).get('/api/disposal/summary').set(citizen)).status).toBe(403);
+    expect(db.query).not.toHaveBeenCalled();
+  });
+  it.each([[admin], [sup]])('returns network totals (role %#)', async (headers) => {
+    db.query.mockResolvedValueOnce([[{ sites: 3, total_capacity_tons: '300.00', total_load_tons: '75.50', full_sites: '1' }]]);
+    const res = await request(app).get('/api/disposal/summary').set(headers);
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual({ sites: 3, full_sites: 1, total_capacity_tons: 300, total_load_tons: 75.5, available_tons: 224.5, utilization_pct: 25.17 });
+  });
+  it('handles no sites without dividing by zero', async () => {
+    db.query.mockResolvedValueOnce([[{ sites: 0, total_capacity_tons: '0', total_load_tons: '0', full_sites: '0' }]]);
+    const res = await request(app).get('/api/disposal/summary').set(admin);
+    expect(res.body.data).toMatchObject({ sites: 0, utilization_pct: 0, available_tons: 0 });
+  });
+  it('is not treated as a site id', async () => {
+    db.query.mockResolvedValueOnce([[{ sites: 0, total_capacity_tons: 0, total_load_tons: 0, full_sites: 0 }]]);
+    expect((await request(app).get('/api/disposal/summary').set(admin)).status).toBe(200);
+  });
+  it('does not leak DB errors', async () => {
+    db.query.mockRejectedValueOnce(dbError());
+    const res = await request(app).get('/api/disposal/summary').set(admin);
+    expect(res.status).toBe(500);
+    expect(JSON.stringify(res.body)).not.toMatch(/secret/);
+  });
+});
+
 describe('GET /api/disposal/:id', () => {
   it.each(['abc', '0', '-1', '1.5', '1e3'])('returns 400 for id "%s"', async (id) => {
     expect((await request(app).get(`/api/disposal/${id}`).set(citizen)).status).toBe(400);

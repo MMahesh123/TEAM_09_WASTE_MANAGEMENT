@@ -4,6 +4,7 @@ const c = require('../controllers/disposalController');
 const { verifyToken, verifyRole } = require('../middleware/authMiddleware');
 
 router.get('/', verifyToken, c.listSites);
+router.get('/summary', verifyToken, verifyRole(['Admin', 'Supervisor']), c.summary); // before '/:id'
 router.get('/:id', verifyToken, c.getSite);
 
 router.post('/', verifyToken, verifyRole(['Admin']), c.createSite);
