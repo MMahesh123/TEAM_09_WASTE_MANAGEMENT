@@ -189,6 +189,14 @@ npm test -- --runInBand                      # unit and route tests, database mo
 Real-database tests (concurrent loads and payments, constraints, JWT roles) are opt-in because they
 need a MySQL/MariaDB server. They create and drop their own scratch database (`wms_test_louis`):
 
+The simplest way, on any operating system (reads `DB_HOST`, `DB_USER` and `DB_PASSWORD` from `.env`):
+
+```bash
+npm run test:db
+```
+
+Or set the variables by hand:
+
 ```bash
 # macOS / Linux
 RUN_DB_TESTS=1 DB_HOST=127.0.0.1 DB_USER=root DB_PASSWORD=yourpassword npm test -- --runInBand
