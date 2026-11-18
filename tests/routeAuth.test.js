@@ -108,11 +108,12 @@ describe('role enforcement with real tokens', () => {
       (await request(app).delete('/api/disposal/1').set('Authorization', t)).status
     ).toBe(403);
 
-    db.query
+    db.conn.query
       .mockResolvedValueOnce([{ affectedRows: 1 }])
       .mockResolvedValueOnce([[
         { current_load_tons: '1', max_capacity_tons: '9' }
-      ]]);
+      ]])
+      .mockResolvedValueOnce([{ affectedRows: 1 }]);
 
     expect(
       (await request(app).post('/api/disposal/1/load')

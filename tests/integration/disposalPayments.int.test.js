@@ -98,6 +98,37 @@ d('disposal and payments against a real database', () => {
       expect((await request(app).get(`/api/disposal/${id}`).set(admin())).body.data.current_load_tons).toBe(1);
     });
 
+    it('records every accepted load change and nothing for rejected ones', async () => {
+      const id = await newSite('history', 10);
+      await request(app).post(`/api/disposal/${id}/load`).set(sup()).send({ tons: 6, action: 'add' });
+      await request(app).post(`/api/disposal/${id}/load`).set(sup()).send({ tons: 5, action: 'add' }); // over capacity
+      await request(app).post(`/api/disposal/${id}/load`).set(sup()).send({ tons: 2.5, action: 'remove' });
+      await request(app).post(`/api/disposal/${id}/load`).set(sup()).send({ tons: 9, action: 'remove' }); // below zero
+      const res = await request(app).get(`/api/disposal/${id}/history`).set(admin());
+      expect(res.status).toBe(200);
+      expect(res.body.data.map((r) => [r.action, r.tons, r.load_after])).toEqual([['remove', 2.5, 3.5], ['add', 6, 6]]);
+      const paged = await request(app).get(`/api/disposal/${id}/history?limit=1&offset=1`).set(admin());
+      expect(paged.body.data.map((r) => r.action)).toEqual(['add']);
+      expect((await request(app).get(`/api/disposal/${id}/history`).set(workerHdr(5))).status).toBe(403);
+      expect((await request(app).get('/api/disposal/999999/history').set(admin())).status).toBe(404);
+    });
+    it('keeps history consistent with the final load under concurrency', async () => {
+      const id = await newSite('history-race', 100);
+      await Promise.all(Array.from({ length: 20 }, () =>
+        request(app).post(`/api/disposal/${id}/load`).set(sup()).send({ tons: 1, action: 'add' })));
+      const [[row]] = await db.query('SELECT COUNT(*) AS n, MAX(load_after) AS top FROM disposal_log WHERE site_id = ?', [id]);
+      expect(row.n).toBe(20);
+      expect(Number(row.top)).toBe(20);
+      expect((await request(app).get(`/api/disposal/${id}`).set(admin())).body.data.current_load_tons).toBe(20);
+    });
+    it('removes the history with a deleted site', async () => {
+      const id = await newSite('history-gone', 10);
+      await request(app).post(`/api/disposal/${id}/load`).set(sup()).send({ tons: 1, action: 'add' });
+      await request(app).post(`/api/disposal/${id}/load`).set(sup()).send({ tons: 1, action: 'remove' });
+      await request(app).delete(`/api/disposal/${id}`).set(admin());
+      const [[row]] = await db.query('SELECT COUNT(*) AS n FROM disposal_log WHERE site_id = ?', [id]);
+      expect(row.n).toBe(0);
+    });
     it('blocks shrinking capacity below the load and deleting a loaded site', async () => {
       const id = await newSite('Loaded', 50);
       await request(app).post(`/api/disposal/${id}/load`).set(sup()).send({ tons: 20, action: 'add' });

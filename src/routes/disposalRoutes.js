@@ -9,6 +9,7 @@ router.get('/:id', verifyToken, c.getSite);
 router.post('/', verifyToken, verifyRole(['Admin']), c.createSite);
 router.put('/:id', verifyToken, verifyRole(['Admin']), c.updateSite);
 router.delete('/:id', verifyToken, verifyRole(['Admin']), c.deleteSite);
+router.get('/:id/history', verifyToken, verifyRole(['Admin', 'Supervisor']), c.getHistory);
 router.post('/:id/load', verifyToken, verifyRole(['Admin', 'Supervisor']), c.updateLoad);
 
 module.exports = router;
