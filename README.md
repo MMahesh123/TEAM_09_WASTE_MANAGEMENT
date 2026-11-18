@@ -145,17 +145,21 @@ Owner: Louis. Routes: `/api/disposal` and `/api/payments`. Source: `src/controll
 3. Shared contract with the collection module: `collection_logs(log_id PK, worker_id, waste_tons, collected_at DATE)`.
    Payments read `worker_id`, `waste_tons`, `collected_at` and use `log_id` to record what a payment covered.
    Coordinate with the collection owner before renaming any of these.
+4. Upgrading an existing database: run `database/migrations/001_payments_cancelled_status.sql` (adds the `Cancelled`
+   status) and `database/migrations/002_disposal_log.sql` (adds the load history table). Fresh installs already include both.
 
 ### Disposal API
 
 | Method and path | Roles | Purpose |
 |---|---|---|
-| `GET /api/disposal` | any logged-in user | List sites with load and `utilization_pct` |
+| `GET /api/disposal` | any logged-in user | List sites with load and `utilization_pct`; optional `?search=`, `?has_capacity=true\|false`, `?limit=&offset=` |
+| `GET /api/disposal/summary` | Admin, Supervisor | Network totals: sites, full sites, capacity, load, available tons, utilisation |
 | `GET /api/disposal/:id` | any logged-in user | One site |
+| `GET /api/disposal/:id/history` | Admin, Supervisor | Load changes of a site, newest first (`?limit=&offset=`) |
 | `POST /api/disposal` | Admin | Create `{ name, location, max_capacity_tons }` (409 on duplicate name) |
 | `PUT /api/disposal/:id` | Admin | Update; capacity cannot go below the current load |
 | `DELETE /api/disposal/:id` | Admin | Delete; 409 while the site still holds waste |
-| `POST /api/disposal/:id/load` | Admin, Supervisor | `{ tons, action: "add" \| "remove" }`; 400 if it would exceed capacity or go below zero |
+| `POST /api/disposal/:id/load` | Admin, Supervisor | `{ tons, action: "add" \| "remove" }`; 400 if it would exceed capacity or go below zero. Every accepted change is recorded in `disposal_log` |
 
 ### Payment API
 
@@ -163,11 +167,14 @@ Owner: Louis. Routes: `/api/disposal` and `/api/payments`. Source: `src/controll
 |---|---|---|
 | `POST /api/payments/calculate` | Admin, Supervisor | Preview `{ worker_id, period_start, period_end, rate_per_ton? }`, stores nothing |
 | `POST /api/payments/simulate` | Admin, Supervisor | Same input; records a `Simulated` payment (201) |
-| `GET /api/payments` | Admin, Supervisor (all, `?worker_id=`), Worker (own only) | Optional `?status=Simulated\|Paid&limit=1-200&offset=` |
+| `GET /api/payments/summary` | Admin, Supervisor | Count, tons and amount per status; optional `worker_id`, `from`, `to` |
+| `GET /api/payments` | Admin, Supervisor (all, `?worker_id=`), Worker (own only) | Optional `?status=Simulated\|Paid\|Cancelled&limit=1-200&offset=` |
 | `GET /api/payments/:id` | Admin, Supervisor, Worker (own only) | One payment with `log_count` |
 | `PATCH /api/payments/:id/status` | Admin | `{ "status": "Paid" }`, allowed once from `Simulated` |
+| `POST /api/payments/:id/cancel` | Admin | Cancels a `Simulated` payment and releases its logs so the period can be paid again (409 if already `Paid` or `Cancelled`) |
 
 Citizens and unknown roles receive 403 on every payment route. All routes require a valid JWT.
+Full request and response details: [`docs/disposal-payments-api.md`](docs/disposal-payments-api.md).
 
 ### Rules and assumptions
 
@@ -175,7 +182,7 @@ Citizens and unknown roles receive 403 on every payment route. All routes requir
 - **What is paid:** every *unpaid* collection log of the worker in that range, at `tons x rate_per_ton`, rounded to 2 decimals. Totals are added in hundredths of a ton to avoid floating-point drift.
 - **No double payment:** `payment_items.log_id` is UNIQUE, so a log can belong to only one payment. A repeated or overlapping request for already-paid logs returns 409; simultaneous requests are serialised and exactly one succeeds. If new logs arrive later for an already-paid period, a new simulation pays only those new logs.
 - **Payee:** `worker_id` must be an existing user with the Worker role (404 / 400 otherwise), checked before any calculation.
-- **No real money moves.** `Simulated` is a calculation record. `Paid` is a manual marker that the amount was settled outside this system; it cannot be undone through the API.
+- **No real money moves.** `Simulated` is a calculation record. `Paid` is a manual marker that the amount was settled outside this system; it cannot be undone through the API. A `Simulated` payment entered by mistake can be cancelled, which frees its logs.
 - **Limits:** tons, capacities and rates have at most 2 decimals and fit `DECIMAL(10,2)`; amounts fit `DECIMAL(12,2)`.
 - **Disposal deletion:** a site that still holds waste cannot be deleted (the tonnage would vanish from the records).
 - **Errors:** responses are `{ code, message }`; database errors are logged on the server and never returned to the client.
