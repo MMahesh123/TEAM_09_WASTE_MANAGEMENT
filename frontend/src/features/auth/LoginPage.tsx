@@ -8,8 +8,11 @@ import {
   LockKeyhole,
   Mail,
 } from 'lucide-react'
+
 import { login, getStoredUser } from './authService'
+import { getDashboardPath } from './roleAccess'
 import { getApiErrorMessage } from '../../services/api/client'
+
 import './LoginPage.css'
 import cityImage from '../../assets/wms-city-login.png'
 
@@ -22,8 +25,10 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
-  if (localStorage.getItem('wms_access_token') && getStoredUser()) {
-    return <Navigate to="/dashboard" replace />
+  const storedUser = getStoredUser()
+
+  if (localStorage.getItem('wms_access_token') && storedUser) {
+    return <Navigate to={getDashboardPath(storedUser.role)} replace />
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -32,8 +37,14 @@ export default function LoginPage() {
     setLoading(true)
 
     try {
-      await login({ email: email.trim(), password })
-      navigate('/dashboard', { replace: true })
+      const response = await login({
+        email: email.trim(),
+        password,
+      })
+
+      navigate(getDashboardPath(response.user.role), {
+        replace: true,
+      })
     } catch (err) {
       setError(getApiErrorMessage(err))
     } finally {

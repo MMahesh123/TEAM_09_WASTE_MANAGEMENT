@@ -37,11 +37,11 @@ router.get(
     paymentController.getPayment
 );
 
-// Mark payment as paid — Admin only
+// Mark payment as paid — Admin and Supervisor
 router.patch(
     '/:id/status',
     verifyToken,
-    verifyRole(['Admin']),
+    verifyRole(['Admin', 'Supervisor']),
     paymentController.markPaid
 );
 

@@ -1,4 +1,3 @@
-
 process.env.WAGE_RATE_PER_TON = '600'; // Test-only fixture. Not the approved project rate.
 
 jest.mock('../src/config/db', () => require('./helpers/mockDb').makeDb());
@@ -588,6 +587,7 @@ describe('GET /api/payments', () => {
 
     expect(res.status).toBe(200);
     expect(db.query.mock.calls[0][0]).not.toMatch(/WHERE p\./);
+
     expect(res.body).toMatchObject({
       count: 1,
       limit: 50,
@@ -728,8 +728,8 @@ describe('GET /api/payments/:id', () => {
 describe('PATCH /api/payments/:id/status', () => {
   const url = '/api/payments/3/status';
 
-  it.each([sup, worker, citizen])(
-    'only Admin may change status',
+  it.each([worker, citizen])(
+    'rejects unauthorized roles from changing payment status',
     async (headers) => {
       const res = await request(app)
         .patch(url)
@@ -773,53 +773,58 @@ describe('PATCH /api/payments/:id/status', () => {
     expect(res.status).toBe(400);
   });
 
-  it('marks Simulated as Paid and records an audit event', async () => {
-    const existing = {
-      payment_id: 3,
-      worker_id: 5,
-      status: 'Simulated',
-      amount: '600.00',
-      reference_no: 'SIM-TEST'
-    };
+  it.each([admin, sup])(
+    'allows Admin and Supervisor to mark Simulated as Paid and records an audit event',
+    async (headers) => {
+      const existing = {
+        payment_id: 3,
+        worker_id: 5,
+        status: 'Simulated',
+        amount: '600.00',
+        reference_no: 'SIM-TEST'
+      };
 
-    const updated = {
-      ...existing,
-      status: 'Paid',
-      total_tons: '1.00',
-      rate_per_ton: '600.00',
-      paid_at: '2026-11-18 10:00:00',
-      log_count: 1
-    };
+      const updated = {
+        ...existing,
+        status: 'Paid',
+        total_tons: '1.00',
+        rate_per_ton: '600.00',
+        paid_at: '2026-11-18 10:00:00',
+        log_count: 1
+      };
 
-    db.conn.query
-      .mockResolvedValueOnce([[existing]]) // SELECT ... FOR UPDATE
-      .mockResolvedValueOnce([{ affectedRows: 1 }]) // UPDATE
-      .mockResolvedValueOnce([{ insertId: 1 }]) // audit_logs INSERT
-      .mockResolvedValueOnce([[updated]]); // final SELECT
+      db.conn.query
+        .mockResolvedValueOnce([[existing]]) // SELECT ... FOR UPDATE
+        .mockResolvedValueOnce([{ affectedRows: 1 }]) // UPDATE
+        .mockResolvedValueOnce([{ insertId: 1 }]) // audit_logs INSERT
+        .mockResolvedValueOnce([[updated]]); // final SELECT
 
-    const res = await request(app)
-      .patch(url)
-      .set(admin)
-      .send({ status: 'Paid' });
+      const res = await request(app)
+        .patch(url)
+        .set(headers)
+        .send({ status: 'Paid' });
 
-    expect(res.status).toBe(200);
-    expect(res.body.data.status).toBe('Paid');
+      expect(res.status).toBe(200);
+      expect(res.body.data.status).toBe('Paid');
 
-    expect(db.conn.beginTransaction).toHaveBeenCalledTimes(1);
-    expect(db.conn.commit).toHaveBeenCalledTimes(1);
-    expect(db.conn.rollback).not.toHaveBeenCalled();
-    expect(db.conn.release).toHaveBeenCalledTimes(1);
+      expect(db.conn.beginTransaction).toHaveBeenCalledTimes(1);
+      expect(db.conn.commit).toHaveBeenCalledTimes(1);
+      expect(db.conn.rollback).not.toHaveBeenCalled();
+      expect(db.conn.release).toHaveBeenCalledTimes(1);
 
-    expect(db.conn.query.mock.calls[0][0]).toMatch(/FOR UPDATE/);
-    expect(db.conn.query.mock.calls[1][0]).toMatch(/status = 'Paid'/);
+      expect(db.conn.query.mock.calls[0][0]).toMatch(/FOR UPDATE/);
+      expect(db.conn.query.mock.calls[1][0]).toMatch(/status = 'Paid'/);
 
-    const auditQuery = db.conn.query.mock.calls[2][0];
-    expect(auditQuery).toMatch(/INSERT INTO audit_logs/);
+      const auditQuery = db.conn.query.mock.calls[2][0];
 
-    const auditValues = db.conn.query.mock.calls[2][1];
-    expect(auditValues).toContain('PAYMENT_MARKED_PAID');
-    expect(auditValues).toContain('Payment');
-  });
+      expect(auditQuery).toMatch(/INSERT INTO audit_logs/);
+
+      const auditValues = db.conn.query.mock.calls[2][1];
+
+      expect(auditValues).toContain('PAYMENT_MARKED_PAID');
+      expect(auditValues).toContain('Payment');
+    }
+  );
 
   it('returns 409 when the payment is already Paid', async () => {
     db.conn.query.mockResolvedValueOnce([

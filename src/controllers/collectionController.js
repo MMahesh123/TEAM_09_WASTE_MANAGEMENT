@@ -1,11 +1,15 @@
 ﻿
 // WMS-F-007: Collection Logging and Supervisor Verification
+
 const db = require('../config/db');
 const { parsePositiveInt, isValidISODate } = require('../utils/inputValidators');
 const { WASTE_TYPES } = require('../middleware/validateCollection');
 const { recordAuditEvent } = require('../services/auditService');
 
 const LOGGABLE_ASSIGNMENT_STATUSES = ['Scheduled', 'In-Progress'];
+
+// Existing operational disposal site: NORTH ZONE
+const DISPOSAL_SITE_ID = 1;
 
 const COLLECTION_SELECT = `
     SELECT c.log_id, c.assignment_id, c.worker_id, u.username AS worker_name,
@@ -46,8 +50,11 @@ async function withTransaction(work) {
 
     try {
         await conn.beginTransaction();
+
         const result = await work(conn);
+
         await conn.commit();
+
         return result;
     } catch (error) {
         await conn.rollback();
@@ -199,7 +206,11 @@ exports.getCollections = async (req, res, next) => {
             const id = parsePositiveInt(assignment_id);
 
             if (!id) {
-                return fail(res, 400, 'assignment_id must be a positive integer.');
+                return fail(
+                    res,
+                    400,
+                    'assignment_id must be a positive integer.'
+                );
             }
 
             conditions.push('c.assignment_id = ?');
@@ -242,7 +253,11 @@ exports.getCollections = async (req, res, next) => {
                 const id = parsePositiveInt(worker_id);
 
                 if (!id) {
-                    return fail(res, 400, 'worker_id must be a positive integer.');
+                    return fail(
+                        res,
+                        400,
+                        'worker_id must be a positive integer.'
+                    );
                 }
 
                 conditions.push('c.worker_id = ?');
@@ -337,7 +352,7 @@ exports.verifyCollection = async (req, res, next) => {
     try {
         const collection = await withTransaction(async (conn) => {
 
-            // Lock record to prevent simultaneous verification.
+            // Lock collection record to prevent simultaneous verification.
             const [rows] = await conn.query(
                 `SELECT log_id, waste_tons, verification_status
                  FROM collection_logs
@@ -347,7 +362,10 @@ exports.verifyCollection = async (req, res, next) => {
             );
 
             if (rows.length === 0) {
-                throw new HttpError(404, 'Collection record not found.');
+                throw new HttpError(
+                    404,
+                    'Collection record not found.'
+                );
             }
 
             const current = rows[0];
@@ -364,7 +382,9 @@ exports.verifyCollection = async (req, res, next) => {
                 Number(current.waste_tons) * 100
             );
 
-            const acceptedHundredths = Math.round(acceptedTons * 100);
+            const acceptedHundredths = Math.round(
+                acceptedTons * 100
+            );
 
             if (acceptedHundredths > recordedHundredths) {
                 throw new HttpError(
@@ -372,6 +392,8 @@ exports.verifyCollection = async (req, res, next) => {
                     'acceptedTons cannot exceed the recorded waste_tons.'
                 );
             }
+
+            const acceptedQuantity = acceptedHundredths / 100;
 
             const rejectedTons = Math.round(
                 recordedHundredths - acceptedHundredths
@@ -388,6 +410,56 @@ exports.verifyCollection = async (req, res, next) => {
                 ? 'Rejected'
                 : 'Approved';
 
+            // -----------------------------------------------------
+            // STEP 1: Update disposal capacity for accepted waste.
+            // Only NORTH ZONE (site_id = 1) is updated.
+            // Rejected quantity is never added.
+            // -----------------------------------------------------
+
+            if (acceptedHundredths > 0) {
+                const [siteResult] = await conn.query(
+                    `UPDATE disposal_sites
+                     SET current_load_tons = current_load_tons + ?
+                     WHERE site_id = ?
+                       AND current_load_tons + ? <= max_capacity_tons`,
+                    [
+                        acceptedQuantity,
+                        DISPOSAL_SITE_ID,
+                        acceptedQuantity
+                    ]
+                );
+
+                if (siteResult.affectedRows === 0) {
+                    const [sites] = await conn.query(
+                        `SELECT site_id, name,
+                                current_load_tons,
+                                max_capacity_tons
+                         FROM disposal_sites
+                         WHERE site_id = ?
+                         FOR UPDATE`,
+                        [DISPOSAL_SITE_ID]
+                    );
+
+                    if (sites.length === 0) {
+                        throw new HttpError(
+                            404,
+                            'NORTH ZONE disposal site was not found.'
+                        );
+                    }
+
+                    throw new HttpError(
+                        409,
+                        `Insufficient disposal capacity at ${sites[0].name}. ` +
+                        `Current load: ${sites[0].current_load_tons} tons; ` +
+                        `maximum capacity: ${sites[0].max_capacity_tons} tons.`
+                    );
+                }
+            }
+
+            // -----------------------------------------------------
+            // STEP 2: Save collection verification.
+            // -----------------------------------------------------
+
             await conn.query(
                 `UPDATE collection_logs
                  SET verification_status = ?,
@@ -398,14 +470,18 @@ exports.verifyCollection = async (req, res, next) => {
                  WHERE log_id = ?`,
                 [
                     verificationStatus,
-                    acceptedTons,
+                    acceptedQuantity,
                     req.user.userId,
                     reason,
                     id
                 ]
             );
 
-            // Audit verification in the same transaction.
+            // -----------------------------------------------------
+            // STEP 3: Record audit event.
+            // Same transaction as disposal and collection updates.
+            // -----------------------------------------------------
+
             await recordAuditEvent({
                 actor: {
                     userId: req.user.userId,
@@ -422,7 +498,7 @@ exports.verifyCollection = async (req, res, next) => {
                 },
                 newValues: {
                     verificationStatus,
-                    acceptedTons,
+                    acceptedTons: acceptedQuantity,
                     rejectedTons,
                     verifiedBy: req.user.userId
                 },
@@ -430,11 +506,16 @@ exports.verifyCollection = async (req, res, next) => {
                 metadata: {
                     recordedTons: Number(current.waste_tons),
                     partialAcceptance: acceptedHundredths > 0 &&
-                        acceptedHundredths < recordedHundredths
+                        acceptedHundredths < recordedHundredths,
+                    disposalSiteId: acceptedHundredths > 0
+                        ? DISPOSAL_SITE_ID
+                        : null,
+                    disposalAddedTons: acceptedQuantity
                 },
                 executor: conn
             });
 
+            // Fetch the updated collection.
             const [updatedRows] = await conn.query(
                 `${COLLECTION_SELECT} WHERE c.log_id = ?`,
                 [id]
@@ -445,7 +526,7 @@ exports.verifyCollection = async (req, res, next) => {
 
         return res.status(200).json({
             success: true,
-            message: 'Collection verification completed successfully.',
+            message: 'Collection verification completed successfully. Disposal capacity updated.',
             data: {
                 ...collection,
                 rejected_tons: Math.round(

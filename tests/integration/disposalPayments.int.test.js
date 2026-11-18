@@ -1,4 +1,3 @@
-
 const { ENABLED, createSchema, dropSchema } = require('./dbSetup');
 const d = ENABLED ? describe : describe.skip;
 
@@ -814,31 +813,19 @@ d('disposal and payments against a real database', () => {
         expect(res.status).toBe(403);
       });
 
-      it('only Admin can mark a payment Paid, and only once', async () => {
-        const forbiddenRes = await request(app)
+      // UPDATED: Both Admin and Supervisor can settle payments.
+      it('Admin and Supervisor can mark payments Paid, and only once', async () => {
+        // Supervisor settles the first payment.
+        const supervisorRes = await request(app)
           .patch(`/api/payments/${pay1}/status`)
           .set(sup())
           .send({ status: 'Paid' });
 
-        expect(forbiddenRes.status).toBe(403);
+        expect(supervisorRes.status).toBe(200);
+        expect(supervisorRes.body.data.status).toBe('Paid');
+        expect(supervisorRes.body.data.paid_at).toBeTruthy();
 
-        const invalid = await request(app)
-          .patch(`/api/payments/${pay1}/status`)
-          .set(admin())
-          .send({ status: 'Bogus' });
-
-        expect(invalid.status).toBe(400);
-
-        const ok = await request(app)
-          .patch(`/api/payments/${pay1}/status`)
-          .set(admin())
-          .send({ status: 'Paid' });
-
-        expect(ok.status).toBe(200);
-        expect(ok.body.data.status).toBe('Paid');
-        expect(ok.body.data.paid_at).toBeTruthy();
-
-        const [audit] = await db.query(
+        const [supervisorAudit] = await db.query(
           `SELECT *
            FROM audit_logs
            WHERE action = 'PAYMENT_MARKED_PAID'
@@ -848,15 +835,52 @@ d('disposal and payments against a real database', () => {
           [String(pay1)]
         );
 
-        expect(audit).toHaveLength(1);
-        expect(audit[0].actor_role).toBe('Admin');
+        expect(supervisorAudit).toHaveLength(1);
+        expect(supervisorAudit[0].actor_role).toBe('Supervisor');
 
-        const repeated = await request(app)
+        const repeatedSupervisor = await request(app)
           .patch(`/api/payments/${pay1}/status`)
+          .set(sup())
+          .send({ status: 'Paid' });
+
+        expect(repeatedSupervisor.status).toBe(409);
+
+        const invalid = await request(app)
+          .patch(`/api/payments/${pay2}/status`)
+          .set(admin())
+          .send({ status: 'Bogus' });
+
+        expect(invalid.status).toBe(400);
+
+        // Admin settles the second payment.
+        const adminRes = await request(app)
+          .patch(`/api/payments/${pay2}/status`)
           .set(admin())
           .send({ status: 'Paid' });
 
-        expect(repeated.status).toBe(409);
+        expect(adminRes.status).toBe(200);
+        expect(adminRes.body.data.status).toBe('Paid');
+        expect(adminRes.body.data.paid_at).toBeTruthy();
+
+        const [adminAudit] = await db.query(
+          `SELECT *
+           FROM audit_logs
+           WHERE action = 'PAYMENT_MARKED_PAID'
+             AND entity_type = 'Payment'
+             AND entity_id = ?
+           ORDER BY audit_id DESC`,
+          [String(pay2)]
+        );
+
+        expect(adminAudit).toHaveLength(1);
+        expect(adminAudit[0].actor_role).toBe('Admin');
+
+        const repeatedAdmin = await request(app)
+          .patch(`/api/payments/${pay2}/status`)
+          .set(admin())
+          .send({ status: 'Paid' });
+
+        expect(repeatedAdmin.status).toBe(409);
 
         const missing = await request(app)
           .patch('/api/payments/999999/status')
@@ -869,9 +893,10 @@ d('disposal and payments against a real database', () => {
           .get('/api/payments?status=Paid')
           .set(admin());
 
-        expect(
-          paid.body.data.map((p) => p.payment_id)
-        ).toContain(pay1);
+        expect(paid.status).toBe(200);
+        expect(paid.body.data.map((p) => p.payment_id)).toEqual(
+          expect.arrayContaining([pay1, pay2])
+        );
       });
     });
   });

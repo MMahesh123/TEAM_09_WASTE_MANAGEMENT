@@ -61,32 +61,42 @@ function setupSuccessfulVerification({
     status = 'Approved',
     reason = 'Test verification reason'
 } = {}) {
-    conn.query
-        // Lock and retrieve pending collection.
-        .mockResolvedValueOnce([[
-            {
-                log_id: 5,
-                waste_tons: recordedTons,
-                verification_status: 'Pending'
-            }
-        ]])
+    // 1. Lock and retrieve pending collection.
+    conn.query.mockResolvedValueOnce([[
+        {
+            log_id: 5,
+            waste_tons: recordedTons,
+            verification_status: 'Pending'
+        }
+    ]]);
 
-        // Update collection.
-        .mockResolvedValueOnce([{ affectedRows: 1 }])
+    // 2. Update disposal capacity only when accepted quantity > 0.
+    if (Number(acceptedTons) > 0) {
+        conn.query.mockResolvedValueOnce([
+            { affectedRows: 1 }
+        ]);
+    }
 
-        // Insert audit record.
-        .mockResolvedValueOnce([{ insertId: 99 }])
+    // 3. Update collection verification.
+    conn.query.mockResolvedValueOnce([
+        { affectedRows: 1 }
+    ]);
 
-        // Retrieve updated collection.
-        .mockResolvedValueOnce([[
-            collectionRow({
-                waste_tons: recordedTons,
-                accepted_tons: acceptedTons,
-                verification_status: status,
-                verified_by: 2,
-                verification_reason: reason
-            })
-        ]]);
+    // 4. Insert audit record.
+    conn.query.mockResolvedValueOnce([
+        { insertId: 99 }
+    ]);
+
+    // 5. Retrieve updated collection.
+    conn.query.mockResolvedValueOnce([[
+        collectionRow({
+            waste_tons: recordedTons,
+            accepted_tons: acceptedTons,
+            verification_status: status,
+            verified_by: 2,
+            verification_reason: reason
+        })
+    ]]);
 }
 
 const verify = (token, body, id = 5) => {
@@ -130,10 +140,20 @@ describe('PATCH /api/collections/:id/verify', () => {
         expect(conn.commit).toHaveBeenCalledTimes(1);
         expect(conn.rollback).not.toHaveBeenCalled();
 
-        expect(conn.query).toHaveBeenCalledTimes(4);
+        // SELECT collection, update disposal, update collection,
+        // insert audit, fetch updated collection.
+        expect(conn.query).toHaveBeenCalledTimes(5);
+
         expect(conn.query.mock.calls[0][0]).toContain('FOR UPDATE');
-        expect(conn.query.mock.calls[1][0]).toContain('UPDATE collection_logs');
-        expect(conn.query.mock.calls[2][0]).toContain('INSERT INTO audit_logs');
+        expect(conn.query.mock.calls[1][0]).toContain('UPDATE disposal_sites');
+        expect(conn.query.mock.calls[2][0]).toContain('UPDATE collection_logs');
+        expect(conn.query.mock.calls[3][0]).toContain('INSERT INTO audit_logs');
+
+        expect(conn.query.mock.calls[1][1]).toEqual([
+            1.5,
+            1,
+            1.5
+        ]);
 
         expect(conn.release).toHaveBeenCalledTimes(1);
     });
@@ -159,6 +179,9 @@ describe('PATCH /api/collections/:id/verify', () => {
             verification_status: 'Approved'
         });
 
+        expect(conn.query).toHaveBeenCalledTimes(5);
+        expect(conn.query.mock.calls[1][0]).toContain('UPDATE disposal_sites');
+
         expect(conn.commit).toHaveBeenCalled();
     });
 
@@ -183,6 +206,14 @@ describe('PATCH /api/collections/:id/verify', () => {
             rejected_tons: 1,
             verification_status: 'Rejected'
         });
+
+        // Rejected collection must not update disposal capacity.
+        expect(conn.query).toHaveBeenCalledTimes(4);
+        expect(
+            conn.query.mock.calls.some(([sql]) =>
+                sql.includes('UPDATE disposal_sites')
+            )
+        ).toBe(false);
 
         expect(conn.query.mock.calls[2][0]).toContain('INSERT INTO audit_logs');
         expect(conn.commit).toHaveBeenCalled();
@@ -321,11 +352,14 @@ describe('PATCH /api/collections/:id/verify', () => {
         expect(res.statusCode).toBe(200);
         expect(res.body.success).toBe(true);
         expect(conn.commit).toHaveBeenCalled();
+
+        expect(conn.query).toHaveBeenCalledTimes(5);
+        expect(conn.query.mock.calls[1][0]).toContain('UPDATE disposal_sites');
     });
 
-    test('rolls back collection update when audit insertion fails', async () => {
+    test('rolls back collection and disposal updates when audit insertion fails', async () => {
         conn.query
-            // Retrieve pending collection.
+            // 1. Retrieve pending collection.
             .mockResolvedValueOnce([[
                 {
                     log_id: 5,
@@ -334,11 +368,20 @@ describe('PATCH /api/collections/:id/verify', () => {
                 }
             ]])
 
-            // Collection update succeeds.
-            .mockResolvedValueOnce([{ affectedRows: 1 }])
+            // 2. Disposal capacity update succeeds.
+            .mockResolvedValueOnce([
+                { affectedRows: 1 }
+            ])
 
-            // Audit insertion fails.
-            .mockRejectedValueOnce(new Error('Audit database failure'));
+            // 3. Collection update succeeds.
+            .mockResolvedValueOnce([
+                { affectedRows: 1 }
+            ])
+
+            // 4. Audit insertion fails.
+            .mockRejectedValueOnce(
+                new Error('Audit database failure')
+            );
 
         const res = await verify(supervisorToken, {
             acceptedTons: 1.50,

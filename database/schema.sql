@@ -11,14 +11,25 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+
 CREATE TABLE IF NOT EXISTS complaints (
     id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NULL,
     ward VARCHAR(100) NOT NULL,
     type VARCHAR(100) NOT NULL,
     description TEXT,
-    status ENUM('Pending', 'In-Progress', 'Resolved') NOT NULL DEFAULT 'Pending',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    status ENUM('Pending', 'In-Progress', 'Resolved')
+        NOT NULL DEFAULT 'Pending',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    INDEX idx_complaints_user_id (user_id),
+
+    CONSTRAINT fk_complaints_user
+        FOREIGN KEY (user_id)
+        REFERENCES users(user_id)
+        ON DELETE SET NULL
 );
+
 
 CREATE TABLE IF NOT EXISTS vehicles (
     id INT AUTO_INCREMENT PRIMARY KEY,

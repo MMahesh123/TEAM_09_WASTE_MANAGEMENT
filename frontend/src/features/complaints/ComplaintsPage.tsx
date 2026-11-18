@@ -32,11 +32,20 @@ type ApiComplaint = {
 }
 
 const complaintTypes = [
-  'Overflowing bin',
-  'Missed waste collection',
-  'Illegal dumping',
-  'Waste segregation issue',
-  'Damaged public bin',
+  'Overflowing Bin',
+  'Missed Pickup',
+  'Illegal Dumping',
+  'Missed Waste Collection',
+  'Roadside Garbage',
+  'Drainage Waste',
+  'Plastic Waste',
+  'Construction Debris',
+  'E-Waste Dumping',
+  'Dead Animal Disposal',
+  'Public Area Littering',
+  'Garbage Burning',
+  'Unsegregated Waste',
+  'Damaged Dustbin',
   'Other',
 ]
 

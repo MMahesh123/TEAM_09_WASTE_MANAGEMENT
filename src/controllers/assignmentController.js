@@ -1,4 +1,3 @@
-
 // Vehicle & Staff Shift Assignment Controller (WMS-F-006)
 const db = require('../config/db');
 const { parsePositiveInt, isValidISODate } = require('../utils/inputValidators');
@@ -57,17 +56,41 @@ async function withTransaction(work) {
     }
 }
 
-async function releaseVehicleIfIdle(conn, vehicleId) {
-    await conn.query(
-        `UPDATE vehicles SET status = 'Available'
-         WHERE id = ? AND status = 'Assigned'
-           AND NOT EXISTS (
-               SELECT 1 FROM assignments
-               WHERE vehicle_id = ?
-                 AND status IN ('Scheduled', 'In-Progress')
-           )`,
-        [vehicleId, vehicleId]
+// Synchronize vehicle status with its remaining assignments.
+async function syncVehicleStatus(conn, vehicleId) {
+    const [rows] = await conn.query(
+        `SELECT
+            SUM(CASE WHEN status = 'In-Progress' THEN 1 ELSE 0 END)
+                AS in_progress_count,
+            SUM(CASE WHEN status = 'Scheduled' THEN 1 ELSE 0 END)
+                AS scheduled_count
+         FROM assignments
+         WHERE vehicle_id = ?
+           AND status IN ('Scheduled', 'In-Progress')`,
+        [vehicleId]
     );
+
+    const inProgressCount = Number(rows[0].in_progress_count || 0);
+    const scheduledCount = Number(rows[0].scheduled_count || 0);
+
+    let vehicleStatus = 'Available';
+
+    if (inProgressCount > 0) {
+        vehicleStatus = 'Active';
+    } else if (scheduledCount > 0) {
+        vehicleStatus = 'Assigned';
+    }
+
+    // Do not automatically reactivate vehicles under Maintenance or Inactive.
+    await conn.query(
+        `UPDATE vehicles
+         SET status = ?
+         WHERE id = ?
+           AND status NOT IN ('Maintenance', 'Inactive')`,
+        [vehicleStatus, vehicleId]
+    );
+
+    return vehicleStatus;
 }
 
 // GET /api/assignments
@@ -309,7 +332,7 @@ exports.createAssignment = async (req, res, next) => {
                 ]
             );
 
-            // Update vehicle status.
+            // A scheduled assignment reserves the vehicle.
             await conn.query(
                 "UPDATE vehicles SET status = 'Assigned' WHERE id = ?",
                 [vehicleId]
@@ -383,7 +406,7 @@ exports.updateAssignmentStatus = async (req, res, next) => {
     try {
         const updated = await withTransaction(async (conn) => {
             const [rows] = await conn.query(
-                `SELECT id, vehicle_id, worker_id, status
+                `SELECT id, vehicle_id, worker_id, complaint_id, status
                  FROM assignments
                  WHERE id = ?
                  FOR UPDATE`,
@@ -424,10 +447,72 @@ exports.updateAssignmentStatus = async (req, res, next) => {
                 [status, id]
             );
 
-            // Release the vehicle when the assignment is completed or cancelled.
-            if (status === 'Completed' || status === 'Cancelled') {
-                await releaseVehicleIfIdle(conn, current.vehicle_id);
+            // When work starts, move the linked complaint from Pending to
+            // In-Progress. Completing the assignment does NOT resolve the
+            // complaint; a Supervisor/Admin must make that final decision.
+            if (status === 'In-Progress' && current.complaint_id) {
+                const [complaintRows] = await conn.query(
+                    `SELECT id, status
+                     FROM complaints
+                     WHERE id = ?
+                     FOR UPDATE`,
+                    [current.complaint_id]
+                );
+
+                if (complaintRows.length === 0) {
+                    throw new HttpError(404, 'Linked complaint not found.');
+                }
+
+                const complaint = complaintRows[0];
+
+                if (complaint.status === 'Resolved') {
+                    throw new HttpError(
+                        409,
+                        'This complaint is already resolved and its assignment cannot be started.'
+                    );
+                }
+
+                if (complaint.status === 'Pending') {
+                    await conn.query(
+                        `UPDATE complaints
+                         SET status = 'In-Progress'
+                         WHERE id = ?`,
+                        [current.complaint_id]
+                    );
+
+                    // Audit complaint status change in the same transaction.
+                    await recordAuditEvent({
+                        actor: {
+                            userId: req.user.userId,
+                            role: req.user.role
+                        },
+                        action: 'COMPLAINT_STATUS_UPDATED',
+                        entityType: 'complaint',
+                        entityId: current.complaint_id,
+                        oldValues: {
+                            status: complaint.status
+                        },
+                        newValues: {
+                            status: 'In-Progress'
+                        },
+                        reason: null,
+                        metadata: {
+                            assignmentId: id,
+                            updatedFrom: 'ASSIGNMENT_STATUS_UPDATED'
+                        },
+                        executor: conn
+                    });
+                }
             }
+
+            // Completing an assignment deliberately leaves its complaint
+            // In-Progress until a Supervisor/Admin verifies and resolves it.
+
+            // Synchronize vehicle status after every assignment transition.
+            const vehicleStatus = await syncVehicleStatus(
+                conn,
+                current.vehicle_id
+            );
 
             // Record the status change in the same transaction.
             await recordAuditEvent({
@@ -442,7 +527,8 @@ exports.updateAssignmentStatus = async (req, res, next) => {
                     status: current.status
                 },
                 newValues: {
-                    status
+                    status,
+                    vehicleStatus
                 },
                 metadata: {
                     workerId: current.worker_id,

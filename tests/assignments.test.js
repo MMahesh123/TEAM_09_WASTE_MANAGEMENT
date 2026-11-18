@@ -1,6 +1,7 @@
 
 // WMS-F-006: Vehicle & Staff Shift Assignment (TC-ASG-01 plus negative cases)
 // Uses real JWTs through the real auth middleware; only the database is mocked.
+
 const request = require('supertest');
 const jwt = require('jsonwebtoken');
 
@@ -15,6 +16,7 @@ const db = require('../src/config/db');
 const app = require('../src/app');
 
 const sign = (userId, role) => jwt.sign({ userId, role }, process.env.JWT_SECRET);
+
 const citizenToken = sign(1, 'Citizen');
 const supervisorToken = sign(2, 'Supervisor');
 const workerToken = sign(3, 'Worker');
@@ -77,11 +79,16 @@ describe('Assignments API: authentication and roles', () => {
     });
 
     test('rejects a token signed with the wrong secret with 403', async () => {
-        const forged = jwt.sign({ userId: 2, role: 'Supervisor' }, 'not-the-secret');
+        const forged = jwt.sign(
+            { userId: 2, role: 'Supervisor' },
+            'not-the-secret'
+        );
+
         const res = await request(app)
             .post('/api/assignments')
             .set('Authorization', `Bearer ${forged}`)
             .send(validBody);
+
         expect(res.statusCode).toBe(401);
         expect(db.getConnection).not.toHaveBeenCalled();
     });
@@ -90,6 +97,7 @@ describe('Assignments API: authentication and roles', () => {
         const res = await request(app)
             .get('/api/assignments')
             .set('Authorization', `Bearer ${citizenToken}`);
+
         expect(res.statusCode).toBe(403);
         expect(db.query).not.toHaveBeenCalled();
     });
@@ -99,6 +107,7 @@ describe('Assignments API: authentication and roles', () => {
             .post('/api/assignments')
             .set('Authorization', `Bearer ${workerToken}`)
             .send(validBody);
+
         expect(res.statusCode).toBe(403);
         expect(db.getConnection).not.toHaveBeenCalled();
     });
@@ -115,6 +124,7 @@ describe('POST /api/assignments', () => {
 
         expect(res.statusCode).toBe(201);
         expect(res.body.success).toBe(true);
+
         expect(res.body.data).toMatchObject({
             id: 10,
             status: 'Scheduled',
@@ -122,8 +132,17 @@ describe('POST /api/assignments', () => {
         });
 
         const insert = conn.query.mock.calls[4];
+
         expect(insert[0]).toContain('INSERT INTO assignments');
-        expect(insert[1]).toEqual([1, 3, 2, '2026-11-12', 'Morning', 2, null]);
+        expect(insert[1]).toEqual([
+            1,
+            3,
+            2,
+            '2026-11-12',
+            'Morning',
+            2,
+            null
+        ]);
 
         expect(conn.query.mock.calls[5]).toEqual([
             "UPDATE vehicles SET status = 'Assigned' WHERE id = ?",
@@ -142,28 +161,39 @@ describe('POST /api/assignments', () => {
 
     test('locks the vehicle row while checking availability', async () => {
         mockSuccessfulCreate();
+
         await request(app)
             .post('/api/assignments')
             .set('Authorization', `Bearer ${supervisorToken}`)
             .send(validBody);
+
         expect(sqlCalls()[0]).toContain('FOR UPDATE');
     });
 
     test('accepts numeric strings for ids', async () => {
         mockSuccessfulCreate();
+
         const res = await request(app)
             .post('/api/assignments')
             .set('Authorization', `Bearer ${supervisorToken}`)
-            .send({ ...validBody, vehicle_id: '1', worker_id: '3', ward_id: '2' });
+            .send({
+                ...validBody,
+                vehicle_id: '1',
+                worker_id: '3',
+                ward_id: '2'
+            });
+
         expect(res.statusCode).toBe(201);
     });
 
     test('allows an Admin to create an assignment', async () => {
         mockSuccessfulCreate();
+
         const res = await request(app)
             .post('/api/assignments')
             .set('Authorization', `Bearer ${adminToken}`)
             .send(validBody);
+
         expect(res.statusCode).toBe(201);
     });
 
@@ -191,11 +221,14 @@ describe('POST /api/assignments', () => {
             .post('/api/assignments')
             .set('Authorization', `Bearer ${supervisorToken}`)
             .send([validBody]);
+
         expect(res.statusCode).toBe(400);
     });
 
     test('returns 400 when the vehicle is under Maintenance', async () => {
-        conn.query.mockResolvedValueOnce([[{ id: 1, status: 'Maintenance' }]]);
+        conn.query.mockResolvedValueOnce([
+            [{ id: 1, status: 'Maintenance' }]
+        ]);
 
         const res = await request(app)
             .post('/api/assignments')
@@ -207,71 +240,102 @@ describe('POST /api/assignments', () => {
         expect(conn.rollback).toHaveBeenCalledTimes(1);
         expect(conn.commit).not.toHaveBeenCalled();
         expect(conn.release).toHaveBeenCalledTimes(1);
-        expect(sqlCalls().some((sql) => sql.includes('INSERT'))).toBe(false);
+
+        expect(sqlCalls().some(sql => sql.includes('INSERT'))).toBe(false);
     });
 
     test('returns 400 when the vehicle is Inactive', async () => {
-        conn.query.mockResolvedValueOnce([[{ id: 1, status: 'Inactive' }]]);
+        conn.query.mockResolvedValueOnce([
+            [{ id: 1, status: 'Inactive' }]
+        ]);
+
         const res = await request(app)
             .post('/api/assignments')
             .set('Authorization', `Bearer ${supervisorToken}`)
             .send(validBody);
+
         expect(res.statusCode).toBe(400);
     });
 
     test('returns 404 when the vehicle does not exist', async () => {
         conn.query.mockResolvedValueOnce([[]]);
+
         const res = await request(app)
             .post('/api/assignments')
             .set('Authorization', `Bearer ${supervisorToken}`)
             .send(validBody);
+
         expect(res.statusCode).toBe(404);
         expect(res.body.message).toBe('Vehicle not found.');
     });
 
     test('returns 404 when the worker does not exist', async () => {
         conn.query
-            .mockResolvedValueOnce([[{ id: 1, status: 'Available' }]])
+            .mockResolvedValueOnce([
+                [{ id: 1, status: 'Available' }]
+            ])
             .mockResolvedValueOnce([[]]);
+
         const res = await request(app)
             .post('/api/assignments')
             .set('Authorization', `Bearer ${supervisorToken}`)
             .send(validBody);
+
         expect(res.statusCode).toBe(404);
         expect(res.body.message).toBe('Worker not found.');
     });
 
     test('returns 400 when worker_id belongs to a non-Worker user', async () => {
         conn.query
-            .mockResolvedValueOnce([[{ id: 1, status: 'Available' }]])
-            .mockResolvedValueOnce([[{ user_id: 3, role: 'Citizen' }]]);
+            .mockResolvedValueOnce([
+                [{ id: 1, status: 'Available' }]
+            ])
+            .mockResolvedValueOnce([
+                [{ user_id: 3, role: 'Citizen' }]
+            ]);
+
         const res = await request(app)
             .post('/api/assignments')
             .set('Authorization', `Bearer ${supervisorToken}`)
             .send(validBody);
+
         expect(res.statusCode).toBe(400);
         expect(res.body.message).toMatch(/Worker role/);
     });
 
     test('returns 404 when the ward does not exist', async () => {
         conn.query
-            .mockResolvedValueOnce([[{ id: 1, status: 'Available' }]])
-            .mockResolvedValueOnce([[{ user_id: 3, role: 'Worker' }]])
+            .mockResolvedValueOnce([
+                [{ id: 1, status: 'Available' }]
+            ])
+            .mockResolvedValueOnce([
+                [{ user_id: 3, role: 'Worker' }]
+            ])
             .mockResolvedValueOnce([[]]);
+
         const res = await request(app)
             .post('/api/assignments')
             .set('Authorization', `Bearer ${supervisorToken}`)
             .send(validBody);
+
         expect(res.statusCode).toBe(404);
         expect(res.body.message).toBe('Ward not found.');
     });
 
     test('returns 409 when the vehicle is already booked for that date and shift', async () => {
         conn.query
-            .mockResolvedValueOnce([[{ id: 1, status: 'Assigned' }]])
-            .mockResolvedValueOnce([[{ user_id: 3, role: 'Worker' }]])
-            .mockResolvedValueOnce([[{ id: 2 }]])
-            .mockResolvedValueOnce([[{ vehicle_id: 1, worker_id: 9 }]]);
+            .mockResolvedValueOnce([
+                [{ id: 1, status: 'Assigned' }]
+            ])
+            .mockResolvedValueOnce([
+                [{ user_id: 3, role: 'Worker' }]
+            ])
+            .mockResolvedValueOnce([
+                [{ id: 2 }]
+            ])
+            .mockResolvedValueOnce([
+                [{ vehicle_id: 1, worker_id: 9 }]
+            ]);
 
         const res = await request(app)
             .post('/api/assignments')
@@ -285,10 +349,18 @@ describe('POST /api/assignments', () => {
 
     test('returns 409 when the worker is already booked for that date and shift', async () => {
         conn.query
-            .mockResolvedValueOnce([[{ id: 1, status: 'Available' }]])
-            .mockResolvedValueOnce([[{ user_id: 3, role: 'Worker' }]])
-            .mockResolvedValueOnce([[{ id: 2 }]])
-            .mockResolvedValueOnce([[{ vehicle_id: 7, worker_id: 3 }]]);
+            .mockResolvedValueOnce([
+                [{ id: 1, status: 'Available' }]
+            ])
+            .mockResolvedValueOnce([
+                [{ user_id: 3, role: 'Worker' }]
+            ])
+            .mockResolvedValueOnce([
+                [{ id: 2 }]
+            ])
+            .mockResolvedValueOnce([
+                [{ vehicle_id: 7, worker_id: 3 }]
+            ]);
 
         const res = await request(app)
             .post('/api/assignments')
@@ -300,11 +372,21 @@ describe('POST /api/assignments', () => {
     });
 
     test('returns 409 when the database unique index catches a race', async () => {
-        const dup = Object.assign(new Error('Duplicate entry'), { code: 'ER_DUP_ENTRY' });
+        const dup = Object.assign(
+            new Error('Duplicate entry'),
+            { code: 'ER_DUP_ENTRY' }
+        );
+
         conn.query
-            .mockResolvedValueOnce([[{ id: 1, status: 'Available' }]])
-            .mockResolvedValueOnce([[{ user_id: 3, role: 'Worker' }]])
-            .mockResolvedValueOnce([[{ id: 2 }]])
+            .mockResolvedValueOnce([
+                [{ id: 1, status: 'Available' }]
+            ])
+            .mockResolvedValueOnce([
+                [{ user_id: 3, role: 'Worker' }]
+            ])
+            .mockResolvedValueOnce([
+                [{ id: 2 }]
+            ])
             .mockResolvedValueOnce([[]])
             .mockRejectedValueOnce(dup);
 
@@ -318,7 +400,9 @@ describe('POST /api/assignments', () => {
     });
 
     test('returns 500 and rolls back when the database fails', async () => {
-        conn.query.mockRejectedValueOnce(new Error('Database unavailable'));
+        conn.query.mockRejectedValueOnce(
+            new Error('Database unavailable')
+        );
 
         const res = await request(app)
             .post('/api/assignments')
@@ -342,7 +426,9 @@ describe('GET /api/assignments', () => {
 
         expect(res.statusCode).toBe(200);
         expect(res.body.count).toBe(1);
+
         const [sql, params] = db.query.mock.calls[0];
+
         expect(sql).toContain('a.worker_id = ?');
         expect(params).toEqual([3]);
     });
@@ -355,6 +441,7 @@ describe('GET /api/assignments', () => {
             .set('Authorization', `Bearer ${supervisorToken}`);
 
         expect(res.statusCode).toBe(200);
+
         expect(db.query.mock.calls[0][1]).toEqual([
             '2026-11-12',
             'Morning',
@@ -366,9 +453,11 @@ describe('GET /api/assignments', () => {
 
     test('a Supervisor without filters lists everything', async () => {
         db.query.mockResolvedValueOnce([[]]);
+
         const res = await request(app)
             .get('/api/assignments')
             .set('Authorization', `Bearer ${supervisorToken}`);
+
         expect(res.statusCode).toBe(200);
         expect(db.query.mock.calls[0][0]).not.toContain('WHERE');
         expect(db.query.mock.calls[0][1]).toEqual([]);
@@ -385,15 +474,20 @@ describe('GET /api/assignments', () => {
         const res = await request(app)
             .get(`/api/assignments?${query}`)
             .set('Authorization', `Bearer ${supervisorToken}`);
+
         expect(res.statusCode).toBe(400);
         expect(db.query).not.toHaveBeenCalled();
     });
 
     test('returns 500 when the database fails', async () => {
-        db.query.mockRejectedValueOnce(new Error('Database unavailable'));
+        db.query.mockRejectedValueOnce(
+            new Error('Database unavailable')
+        );
+
         const res = await request(app)
             .get('/api/assignments')
             .set('Authorization', `Bearer ${supervisorToken}`);
+
         expect(res.statusCode).toBe(500);
     });
 });
@@ -401,26 +495,32 @@ describe('GET /api/assignments', () => {
 describe('GET /api/assignments/:id', () => {
     test('a Worker can view their own assignment', async () => {
         db.query.mockResolvedValueOnce([[assignmentRow]]);
+
         const res = await request(app)
             .get('/api/assignments/10')
             .set('Authorization', `Bearer ${workerToken}`);
+
         expect(res.statusCode).toBe(200);
         expect(res.body.data.id).toBe(10);
     });
 
     test("a Worker cannot view another worker's assignment", async () => {
         db.query.mockResolvedValueOnce([[assignmentRow]]);
+
         const res = await request(app)
             .get('/api/assignments/10')
             .set('Authorization', `Bearer ${otherWorkerToken}`);
+
         expect(res.statusCode).toBe(403);
     });
 
     test('returns 404 for an unknown assignment', async () => {
         db.query.mockResolvedValueOnce([[]]);
+
         const res = await request(app)
             .get('/api/assignments/999')
             .set('Authorization', `Bearer ${supervisorToken}`);
+
         expect(res.statusCode).toBe(404);
     });
 
@@ -428,6 +528,7 @@ describe('GET /api/assignments/:id', () => {
         const res = await request(app)
             .get('/api/assignments/abc')
             .set('Authorization', `Bearer ${supervisorToken}`);
+
         expect(res.statusCode).toBe(400);
         expect(db.query).not.toHaveBeenCalled();
     });
@@ -441,12 +542,18 @@ describe('PATCH /api/assignments/:id/status', () => {
         status
     }]];
 
-    test('a Worker can start their own scheduled shift', async () => {
+    test('a Worker can start their own scheduled shift and activate the vehicle', async () => {
         conn.query
-            .mockResolvedValueOnce(current('Scheduled'))
-            .mockResolvedValueOnce([{ affectedRows: 1 }])
+            .mockResolvedValueOnce(current('Scheduled')) // Current assignment
+            .mockResolvedValueOnce([{ affectedRows: 1 }]) // Assignment UPDATE
+            .mockResolvedValueOnce([[
+                { in_progress_count: 1, scheduled_count: 0 }
+            ]]) // Remaining live assignments
+            .mockResolvedValueOnce([{ affectedRows: 1 }]) // Vehicle -> Active
             .mockResolvedValueOnce([{ insertId: 1 }]) // Audit INSERT
-            .mockResolvedValueOnce([[{ ...assignmentRow, status: 'In-Progress' }]]);
+            .mockResolvedValueOnce([[
+                { ...assignmentRow, status: 'In-Progress' }
+            ]]); // Updated assignment
 
         const res = await request(app)
             .patch('/api/assignments/10/status')
@@ -455,17 +562,30 @@ describe('PATCH /api/assignments/:id/status', () => {
 
         expect(res.statusCode).toBe(200);
         expect(res.body.data.status).toBe('In-Progress');
-        expect(sqlCalls().some((sql) => sql.includes("SET status = 'Available'"))).toBe(false);
+
+        const vehicleUpdate = conn.query.mock.calls.find(
+            ([sql]) => sql.includes('UPDATE vehicles')
+        );
+
+        expect(vehicleUpdate).toBeDefined();
+        expect(vehicleUpdate[1]).toEqual(['Active', 1]);
+
         expect(conn.commit).toHaveBeenCalledTimes(1);
+        expect(conn.rollback).not.toHaveBeenCalled();
     });
 
     test('completing an assignment releases the vehicle if it has no other live shifts', async () => {
         conn.query
-            .mockResolvedValueOnce(current('In-Progress'))
+            .mockResolvedValueOnce(current('In-Progress')) // Current assignment
             .mockResolvedValueOnce([{ affectedRows: 1 }]) // Assignment UPDATE
-            .mockResolvedValueOnce([{ affectedRows: 1 }]) // Vehicle release
+            .mockResolvedValueOnce([[
+                { in_progress_count: 0, scheduled_count: 0 }
+            ]]) // No remaining live assignments
+            .mockResolvedValueOnce([{ affectedRows: 1 }]) // Vehicle -> Available
             .mockResolvedValueOnce([{ insertId: 2 }]) // Audit INSERT
-            .mockResolvedValueOnce([[{ ...assignmentRow, status: 'Completed' }]]);
+            .mockResolvedValueOnce([[
+                { ...assignmentRow, status: 'Completed' }
+            ]]); // Updated assignment
 
         const res = await request(app)
             .patch('/api/assignments/10/status')
@@ -473,19 +593,30 @@ describe('PATCH /api/assignments/:id/status', () => {
             .send({ status: 'Completed' });
 
         expect(res.statusCode).toBe(200);
-        const release = conn.query.mock.calls[2];
-        expect(release[0]).toContain("UPDATE vehicles SET status = 'Available'");
-        expect(release[0]).toContain('NOT EXISTS');
-        expect(release[1]).toEqual([1, 1]);
+        expect(res.body.data.status).toBe('Completed');
+
+        const vehicleUpdate = conn.query.mock.calls.find(
+            ([sql]) => sql.includes('UPDATE vehicles')
+        );
+
+        expect(vehicleUpdate).toBeDefined();
+        expect(vehicleUpdate[1]).toEqual(['Available', 1]);
+
+        expect(conn.commit).toHaveBeenCalledTimes(1);
     });
 
     test('a Supervisor can cancel a scheduled assignment', async () => {
         conn.query
-            .mockResolvedValueOnce(current('Scheduled'))
+            .mockResolvedValueOnce(current('Scheduled')) // Current assignment
             .mockResolvedValueOnce([{ affectedRows: 1 }]) // Assignment UPDATE
-            .mockResolvedValueOnce([{ affectedRows: 1 }]) // Vehicle release
+            .mockResolvedValueOnce([[
+                { in_progress_count: 0, scheduled_count: 0 }
+            ]]) // No remaining live assignments
+            .mockResolvedValueOnce([{ affectedRows: 1 }]) // Vehicle -> Available
             .mockResolvedValueOnce([{ insertId: 3 }]) // Audit INSERT
-            .mockResolvedValueOnce([[{ ...assignmentRow, status: 'Cancelled' }]]);
+            .mockResolvedValueOnce([[
+                { ...assignmentRow, status: 'Cancelled' }
+            ]]); // Updated assignment
 
         const res = await request(app)
             .patch('/api/assignments/10/status')
@@ -493,24 +624,38 @@ describe('PATCH /api/assignments/:id/status', () => {
             .send({ status: 'Cancelled' });
 
         expect(res.statusCode).toBe(200);
+        expect(res.body.data.status).toBe('Cancelled');
+
+        const vehicleUpdate = conn.query.mock.calls.find(
+            ([sql]) => sql.includes('UPDATE vehicles')
+        );
+
+        expect(vehicleUpdate).toBeDefined();
+        expect(vehicleUpdate[1]).toEqual(['Available', 1]);
+
+        expect(conn.commit).toHaveBeenCalledTimes(1);
     });
 
     test('a Worker cannot cancel an assignment', async () => {
         conn.query.mockResolvedValueOnce(current('Scheduled'));
+
         const res = await request(app)
             .patch('/api/assignments/10/status')
             .set('Authorization', `Bearer ${workerToken}`)
             .send({ status: 'Cancelled' });
+
         expect(res.statusCode).toBe(403);
         expect(conn.rollback).toHaveBeenCalledTimes(1);
     });
 
     test("a Worker cannot update another worker's assignment", async () => {
         conn.query.mockResolvedValueOnce(current('Scheduled', 3));
+
         const res = await request(app)
             .patch('/api/assignments/10/status')
             .set('Authorization', `Bearer ${otherWorkerToken}`)
             .send({ status: 'In-Progress' });
+
         expect(res.statusCode).toBe(403);
     });
 
@@ -521,12 +666,17 @@ describe('PATCH /api/assignments/:id/status', () => {
         ['Scheduled', 'Scheduled']
     ])('rejects the transition %s -> %s with 400', async (from, to) => {
         conn.query.mockResolvedValueOnce(current(from));
+
         const res = await request(app)
             .patch('/api/assignments/10/status')
             .set('Authorization', `Bearer ${supervisorToken}`)
             .send({ status: to });
+
         expect(res.statusCode).toBe(400);
-        expect(sqlCalls().some((sql) => sql.startsWith('UPDATE assignments'))).toBe(false);
+
+        expect(sqlCalls().some(
+            sql => sql.startsWith('UPDATE assignments')
+        )).toBe(false);
     });
 
     test('returns 400 for an unknown status value', async () => {
@@ -534,6 +684,7 @@ describe('PATCH /api/assignments/:id/status', () => {
             .patch('/api/assignments/10/status')
             .set('Authorization', `Bearer ${supervisorToken}`)
             .send({ status: 'Done' });
+
         expect(res.statusCode).toBe(400);
         expect(res.body.validStatuses).toContain('Completed');
         expect(db.getConnection).not.toHaveBeenCalled();
@@ -541,10 +692,12 @@ describe('PATCH /api/assignments/:id/status', () => {
 
     test('returns 404 for an unknown assignment', async () => {
         conn.query.mockResolvedValueOnce([[]]);
+
         const res = await request(app)
             .patch('/api/assignments/999/status')
             .set('Authorization', `Bearer ${supervisorToken}`)
             .send({ status: 'In-Progress' });
+
         expect(res.statusCode).toBe(404);
     });
 
@@ -553,6 +706,7 @@ describe('PATCH /api/assignments/:id/status', () => {
             .patch('/api/assignments/10/status')
             .set('Authorization', `Bearer ${citizenToken}`)
             .send({ status: 'In-Progress' });
+
         expect(res.statusCode).toBe(403);
     });
 });
